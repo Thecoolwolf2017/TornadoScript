@@ -1,4 +1,4 @@
-﻿using NAudio.Wave;
+using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using TornadoScript.ScriptCore.Game;
 
@@ -6,11 +6,9 @@ namespace TornadoScript.ScriptMain.Utility
 {
     public class WavePlayer
     {
-        private bool soundWasPlaying = false;
-
-        private float fadeStartVolume = 0.0f, fadeTarget = 0.0f;
-
         private float currentVolume = 0.0f;
+
+        private float fadeTarget = 0.0f;
 
         private int fadeTime = 0;
 
@@ -97,8 +95,6 @@ namespace TornadoScript.ScriptMain.Utility
                 _waveStream.CurrentTime = System.TimeSpan.Zero;
                     
             _waveOut.Play();
-
-            soundWasPlaying = true;
         }
 
         public void Update()

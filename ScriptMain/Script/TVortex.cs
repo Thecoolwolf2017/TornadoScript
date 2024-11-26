@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
 using System;
@@ -25,7 +25,7 @@ namespace TornadoScript.ScriptMain.Script
 
         readonly List<TornadoParticle> _particles = new List<TornadoParticle>();
 
-        private int _aliveTime, _createdTime, _nextUpdateTime;
+        private int _createdTime, _nextUpdateTime;
 
         private int _lastDebrisSpawnTime = 0;
 
@@ -95,12 +95,12 @@ namespace TornadoScript.ScriptMain.Script
         public TornadoVortex(Vector3 initialPosition, bool neverDespawn)
         {
             _position = initialPosition;
-             _createdTime = Game.GameTime;
+            _createdTime = Game.GameTime;
             _lifeSpan = neverDespawn ? -1 : Probability.GetInteger(160000, 600000);
             _useInternalEntityArray = ScriptThread.GetVar<bool>("vortexUseEntityPool");
         }
 
-        public void ChangeDestination(bool trackToPlayer )
+        public void ChangeDestination(bool trackToPlayer)
         {
             for (int i = 0; i < 50; i++)
             {
@@ -199,7 +199,7 @@ namespace TornadoScript.ScriptMain.Script
                     _particles.Add(particle);
 
                 }
-            }    
+            }
         }
 
         private void ReleaseEntity(int entityIdx)
@@ -250,14 +250,14 @@ namespace TornadoScript.ScriptMain.Script
                 _lastFullUpdateTime = gameTime;
             }
 
-            if (gameTime > _nextUpdateTime )
+            if (gameTime > _nextUpdateTime)
             {
                 foreach (var ent in MemoryAccess.GetAllEntitiesInternal())
                 {
                     if (_pulledEntities.Count >= MaxEntityCount) break;
 
                     if (_pulledEntities.ContainsKey(ent.Handle) ||
-                        ent.Position.DistanceTo2D(_position) > maxDistanceDelta || 
+                        ent.Position.DistanceTo2D(_position) > maxDistanceDelta ||
                         ent.HeightAboveGround > 300.0f) continue;
 
                     if (ent is Ped && !(ent as Ped).IsRagdoll && ent.HeightAboveGround > 2.0f)

@@ -1,9 +1,6 @@
-﻿using System.Collections.Generic;
-<<<<<<< HEAD
-
-=======
 using System;
->>>>>>> 46660d5b9e2a5942c1c3eb32c40357e5d9abfc48
+using System.Collections.Generic;
+
 namespace TornadoScript.ScriptCore.Game
 {
     public class ScriptExtensionPool : List<ScriptExtension>
