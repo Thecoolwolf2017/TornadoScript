@@ -13,6 +13,7 @@ namespace TornadoScript.ScriptMain.Script
 {
     public class TornadoVortex : ScriptExtension
     {
+        public materials LastMaterialTraversed { get; private set; } = materials.tarmac;
         /// <summary>
         /// Scale of the vortex forces.
         /// </summary>

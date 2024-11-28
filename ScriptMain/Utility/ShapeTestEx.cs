@@ -29,10 +29,25 @@ namespace TornadoScript.ScriptMain.Utility
 
     public static class ShapeTestEx
     {
+        public enum IntersectOptions
+        {
+            Everything = -1,
+            Map = 1,
+            MissionEntities = 2,
+            Peds1 = 12,
+            Objects = 16,
+            Unk1 = 17,
+            Vehicles = 10,
+            Unk2 = 14,
+            Unk3 = 15,
+            Vegetation = 256,
+            Unk4 = 4
+        }
         public unsafe static ShapeTestResult RunShapeTest(Vector3 start, Vector3 end, Entity ignoreEntity, IntersectOptions options)
         {
-            var shapeTest = Function.Call<int>(Hash._CAST_RAY_POINT_TO_POINT,
+            var shapeTest = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
                 start.X, start.Y, start.Z, end.X, end.Y, end.Z, (int)options, ignoreEntity, 7);
+
 
             bool didHit;
 

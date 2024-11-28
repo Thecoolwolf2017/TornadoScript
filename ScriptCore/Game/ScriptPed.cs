@@ -1,11 +1,12 @@
 ﻿using GTA;
+using GTA.Math;
 
 namespace TornadoScript.ScriptCore.Game
 {
     /// <summary>
     /// Represents a ped.
     /// </summary>
-    public class ScriptPed : ScriptEntity<Ped>
+    public class ScriptPed : ScriptEntity<Ped>, IScriptEntity
     {
         /// <summary>
         /// Fired when the ped has entered a vehicle.
@@ -17,19 +18,25 @@ namespace TornadoScript.ScriptCore.Game
         /// </summary>
         public event ScriptEntityEventHandler ExitVehicle;
 
-
+        public Ped Ref { get; private set; }
         private int vehicleTicks = 0;
 
         /// <summary>
         /// If the ped is a local player/ human.
         /// </summary>
+        protected override Entity CreateEntity(Vector3 position)
+        {
+            return World.CreatePed(PedHash.Franklin, position);
+        }
         public bool IsHuman
         {
             get { return Ref == GTA.Game.Player.Character; }
         }
 
-        public ScriptPed(Ped baseRef) : base(baseRef)
-        { }
+        public ScriptPed() : base()
+        {
+            // Initialization code here
+        }
 
         protected virtual void OnEnterVehicle(ScriptEntityEventArgs e)
         {

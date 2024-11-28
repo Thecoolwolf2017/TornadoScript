@@ -40,7 +40,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.1</LangVersion>
+    <LangVersion>7.3</LangVersion>
     <Optimize>false</Optimize>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
@@ -52,7 +52,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.2</LangVersion>
+    <LangVersion>7.3</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
@@ -60,8 +60,8 @@
       <HintPath>References\NAudio.dll</HintPath>
     </Reference>
     <Reference Include="PresentationCore" />
-    <Reference Include="ScriptHookVDotNet2">
-      <HintPath>References\ScriptHookVDotNet2.dll</HintPath>
+    <Reference Include="ScriptHookVDotNet3">
+      <HintPath>References\ScriptHookVDotNet3.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />

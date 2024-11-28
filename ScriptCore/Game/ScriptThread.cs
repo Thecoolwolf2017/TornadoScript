@@ -156,14 +156,15 @@ namespace TornadoScript.ScriptCore.Game
         /// Removes the thread and all extensions.
         /// </summary>
         /// <param name="A_0"></param>
-        protected override void Dispose(bool A_0)
-        {
-            for (int i = _extensions.Count - 1; i > -1; i--)
-            {
-                _extensions[i].Dispose();
-            }
 
-            base.Dispose(A_0);
+        public void Dispose()
+        {
+            _extensions.Clear();
+            Vars.Clear();
         }
+
+
+
+
     }
 }

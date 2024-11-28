@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using GTA;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Frontend;
 
@@ -9,12 +8,23 @@ namespace TornadoScript.ScriptMain.Commands
 {
     public class CommandManager : ScriptExtension
     {
-        private readonly Dictionary<string, Func<string[], string>> _commands =
-            new Dictionary<string, Func<string[], string>>();
-
-        private FrontendManager _frontendMgr;
+        public interface ICommandHandler
+        {
+            string Execute(string[] args);
+        }
+        private readonly Dictionary<string, ICommandHandler> _commands = new Dictionary<string, ICommandHandler>();
+        private readonly FrontendManager _frontendMgr;
 
         public CommandManager()
+        {
+            Name = "Commands";
+            _frontendMgr = ScriptThread.GetOrCreate<FrontendManager>();
+            RegisterEvent("textadded");
+            
+            InitializeCommands();
+        }
+
+        private void InitializeCommands()
         {
             AddCommand("spawn", Commands.SpawnVortex);
             AddCommand("summon", Commands.SummonVortex);
@@ -24,38 +34,81 @@ namespace TornadoScript.ScriptMain.Commands
             AddCommand("list", Commands.ListVars);
             AddCommand("help", Commands.ShowHelp);
             AddCommand("?", Commands.ShowHelp);
+            AddCommand("clear", args => { _frontendMgr.Clear(); return null; });
+            AddCommand("exit", args => { _frontendMgr.HideConsole(); return null; });
         }
 
-        internal override void OnThreadAttached()
+
+
+
+        public override void OnThreadAttached()
         {
-            _frontendMgr = ScriptThread.GetOrCreate<FrontendManager>();
-            _frontendMgr.Events["textadded"] += OnInputEvent;
+
+            Events["textadded"] += OnTextAdded;
             base.OnThreadAttached();
         }
 
-        public void OnInputEvent(object sender, ScriptEventArgs e)
+        public override void OnThreadDetached()
         {
-            var cmd = (string)e.Data;
-
-            if (cmd.Length <= 0) return;
-
-            var stringArray = cmd.Split(' ');
-
-            var command = stringArray[0].ToLower();
-
-            if (!_commands.TryGetValue(command, out var func)) return;
-
-            var args = stringArray.Skip(1).ToArray();
-
-            var text = func?.Invoke(args);
-
-            if (!string.IsNullOrEmpty(text))
-                _frontendMgr.WriteLine(text);
+            Events["textadded"] -= OnTextAdded;
+            base.OnThreadDetached();
         }
 
-        public void AddCommand(string name, Func<string[], string> command)
+
+        private void OnTextAdded(object sender, ScriptEventArgs args)
         {
-            _commands.Add(name, command);
+            if (args?.Data is string text && !string.IsNullOrEmpty(text))
+            {
+                try
+                {
+                    HandleCommand(text);
+                }
+                catch (Exception ex)
+                {
+                    _frontendMgr.WriteLine($"Error executing command: {ex.Message}");
+                }
+            }
+        }
+
+        private void HandleCommand(string command)
+        {
+            var args = command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (args.Length == 0) return;
+
+            var commandName = args[0].ToLower();
+
+            if (_commands.TryGetValue(commandName, out var handler))
+            {
+                var result = handler.Execute(args);
+                if (!string.IsNullOrEmpty(result))
+                {
+                    _frontendMgr.WriteLine(result);
+                }
+            }
+            else
+            {
+                _frontendMgr.WriteLine($"Unknown command: {commandName}. Type 'help' for a list of commands.");
+            }
+        }
+
+        private void AddCommand(string name, Func<string[], string> command)
+        {
+            _commands[name.ToLower()] = new CommandHandler(command);
+        }
+
+        private class CommandHandler : ICommandHandler
+        {
+            private readonly Func<string[], string> _command;
+
+            public CommandHandler(Func<string[], string> command)
+            {
+                _command = command ?? throw new ArgumentNullException(nameof(command));
+            }
+
+            public string Execute(string[] args)
+            {
+                return _command(args);
+            }
         }
     }
 }

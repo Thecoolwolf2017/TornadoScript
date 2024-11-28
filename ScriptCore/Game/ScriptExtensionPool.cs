@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace TornadoScript.ScriptCore.Game
 {
-    public class ScriptExtensionPool : List<ScriptExtension>
+    internal class ScriptExtensionPool : List<ScriptExtension>
     {              
         /// <summary>
         /// Get an extension from the pool by its type.

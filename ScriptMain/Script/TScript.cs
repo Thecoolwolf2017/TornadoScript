@@ -106,14 +106,11 @@ namespace TornadoScript.ScriptMain.Script
         {      
             //
         }
-
-        protected override void Dispose(bool a0)
-        {
-            Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
-
-            ReleaseAssets();
-
-            base.Dispose(a0);
+            public new void Dispose()
+            {
+                Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
+                ReleaseAssets();
+                base.Dispose();
+            }
         }
     }
-}

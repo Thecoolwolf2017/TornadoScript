@@ -66,12 +66,11 @@ namespace TornadoScript.ScriptMain.Config
 
             catch (AccessViolationException)
             {
-                GTA.UI.Notify("TornadoScript failed to write a new INI file. Access to the path " + IniPath + " was denied");
+                GTA.UI.Notification.PostTicker("TornadoScript failed to write a new INI file. Access to the path " + IniPath + " was denied", false, false);
             }
-
             catch (Exception e)
             {
-                GTA.UI.Notify("TornadoScript failed to write a new INI file. " + e.Message);
+                GTA.UI.Notification.PostTicker("TornadoScript failed to write a new INI file. " + e.Message, false, false);
             }
         }
     }

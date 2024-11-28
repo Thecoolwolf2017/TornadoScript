@@ -1,45 +1,90 @@
-﻿using System;
+using System;
 using System.Drawing;
 using GTA;
+using GTA.UI;
 
 namespace TornadoScript.ScriptMain.Frontend
 {
-    public class FrontendOutput
+    public class FrontendOutput : IDisposable
     {
         private const int TextActiveTime = 10000;
-
-        private readonly UIContainer _backsplash;
-
+        private readonly TextElement[] _text = new TextElement[10];
+        private readonly ContainerElement _backsplash = new ContainerElement();
         private readonly string[] _messageQueue = new string[20];
-
-        private readonly UIText[] _text = new UIText[10];
-
         private bool _startFromTop = true;
-
         private bool _stayOnScreen;
-
         private int _scrollIndex;
-
         private int _shownTime;
-
         private int _linesCount;
+        private bool _disposed;
 
-        /// <summary>
-        /// Write a new line to the message queue with the given format.
-        /// </summary>
-        /// <param name="format"></param>
-        /// <param name="args"></param>
-        public void WriteLine(string format, params object[] args)
+        public void Clear()
         {
-            WriteLine(string.Format(format, args));
+            ThrowIfDisposed();
+            Array.Clear(_messageQueue, 0, _messageQueue.Length);
+            _linesCount = 0;
+            _scrollIndex = 0;
         }
 
-        /// <summary>
-        /// Write a new line to the message queue.
-        /// </summary>
-        /// <param name="text"></param>
+        public FrontendOutput()
+        {
+            _backsplash = new ContainerElement(new Point(20, 60), new Size(600, 200), Color.FromArgb(140, 52, 144, 2));
+            CreateText();
+        }
+
+        private void CreateText()
+        {
+            for (var i = 0; i < _text.Length; i++)
+            {
+                _text[i] = new TextElement(string.Empty, new Point(14, 11 + 18 * i), 0.3f);
+                _backsplash.Items.Add(_text[i]);
+            }
+        }
+
+        public void Update(int gameTime)
+        {
+            ThrowIfDisposed();
+            if (gameTime > _shownTime + TextActiveTime && !_stayOnScreen)
+            {
+                if (_backsplash.Color.A > 0)
+                {
+                    _backsplash.Color = Color.FromArgb(
+                        Math.Max(0, _backsplash.Color.A - 2),
+                        _backsplash.Color);
+                }
+
+                foreach (var text in _text)
+                {
+                    if (text.Color.A > 0)
+                    {
+                        text.Color = Color.FromArgb(
+                            Math.Max(0, text.Color.A - 4),
+                            text.Color);
+                    }
+                }
+            }
+            else
+            {
+                UpdateText();
+            }
+
+            _backsplash.Draw();
+        }
+
+        private void UpdateText()
+        {
+            for (var i = _text.Length - 1; i > -1; i--)
+            {
+                _text[i].Caption = _messageQueue[
+                    _startFromTop
+                        ? i + _scrollIndex
+                        : _messageQueue.Length - 1 - i + _scrollIndex] ?? string.Empty;
+            }
+        }
+
         public void WriteLine(string text)
         {
+            ThrowIfDisposed();
             Show();
 
             for (var i = _messageQueue.Length - 1; i > 0; i--)
@@ -47,109 +92,115 @@ namespace TornadoScript.ScriptMain.Frontend
                 _messageQueue[i] = _messageQueue[i - 1];
             }
 
-            _messageQueue[0] = $"~4~[{DateTime.Now.ToShortTimeString()}]:   {text}";
-
+            _messageQueue[0] = $"~w~{text}";
             _linesCount = Math.Min(_linesCount + 1, _messageQueue.Length);
+        }
+
+        public void Show()
+        {
+            ThrowIfDisposed();
+            _backsplash.Color = Color.FromArgb(140, 52, 144, 2);
+            SetTextColor(Color.White);
+            _shownTime = Game.GameTime;
+            _stayOnScreen = true;
+        }
+
+        public void Hide()
+        {
+            ThrowIfDisposed();
+            _stayOnScreen = false;
+        }
+
+        public void EnableFadeOut()
+        {
+            ThrowIfDisposed();
+            _stayOnScreen = false;
+        }
+
+        public void ScrollUp()
+        {
+            ThrowIfDisposed();
+            if (_scrollIndex > 0)
+            {
+                _scrollIndex--;
+                UpdateText();
+            }
+        }
+
+        public void ScrollDown()
+        {
+            ThrowIfDisposed();
+            if (_scrollIndex < _linesCount - _text.Length)
+            {
+                _scrollIndex++;
+                UpdateText();
+            }
+        }
+
+        public void ScrollToTop()
+        {
+            ThrowIfDisposed();
+            _scrollIndex = 0;
+            UpdateText();
         }
 
         private void SetTextColor(Color color)
         {
+            ThrowIfDisposed();
             foreach (var text in _text)
             {
                 text.Color = color;
             }
         }
 
-        public FrontendOutput()
+        private void ThrowIfDisposed()
         {
-            _backsplash = new UIContainer(new Point(20, 60), new Size(600, 200), Color.Empty);
-            CreateText();
-        }
-
-        public void Show()
-        {
-            _backsplash.Color = 
-                Color.FromArgb(140, 52, 144, 2);
-
-            SetTextColor(Color.White);
-
-            _shownTime = Game.GameTime;
-        }
-
-        public void Hide()
-        {
-            _backsplash.Color = Color.Empty;
-
-            SetTextColor(Color.Empty);
-
-            _shownTime = 0;
-        }
-
-        public void ScrollUp()
-        {
-            if (_scrollIndex > 0)
-                _scrollIndex--;
-        }
-
-        public void ScrollToTop()
-        {
-            _scrollIndex = 0;
-        }
-
-        public void ScrollDown()
-        {
-            if (_scrollIndex < _linesCount - 10)
-                _scrollIndex++;
-        }
-
-        public void DisableFadeOut()
-        {
-            _stayOnScreen = true;
-        }
-
-        public void EnableFadeOut()
-        {
-            _stayOnScreen = false;
-        }
-
-        private void CreateText()
-        {
-            for (var i = 0; i < _text.Length; i++)
+            if (_disposed)
             {
-                _text[i] = new UIText(string.Empty, new Point(14, 11 + 18 * i), 0.3f, Color.Empty);
+                throw new ObjectDisposedException(nameof(FrontendOutput));
             }
-
-            _backsplash.Items.AddRange(_text);
         }
 
-        public void Update(int gameTime)
+        public void Dispose()
         {
-            if (gameTime > _shownTime + TextActiveTime && !_stayOnScreen)
-            {
-                if (_backsplash.Color.A > 0)
-                    _backsplash.Color = Color.FromArgb(Math.Max(0, _backsplash.Color.A - 2), _backsplash.Color);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
-                foreach (var text in _text)
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            if (disposing)
+            {
+                // Dispose managed resources
+                if (_backsplash is IDisposable backsplashDisposable)
                 {
-                    if (text.Color.A > 0)
+                    backsplashDisposable.Dispose();
+                }
+
+                if (_text != null)
+                {
+                    foreach (var textElement in _text)
                     {
-                        text.Color = Color.FromArgb(Math.Max(0, text.Color.A - 4), text.Color);
+                        if (textElement is IDisposable textDisposable)
+                        {
+                            textDisposable.Dispose();
+                        }
                     }
                 }
+
+                // Clear message queue and reset state
+                Clear();
+                Hide();
             }
 
-            else
-            {
-                for (var i = _text.Length - 1; i > -1; i--)
-                {
-                    _text[i].Caption = _messageQueue[
-                                           _startFromTop
-                                               ? i + _scrollIndex
-                                               : _messageQueue.Length - 1 - i + _scrollIndex] ?? string.Empty;
-                }
-            }
+            _disposed = true;
+        }
 
-            _backsplash.Draw();
+        ~FrontendOutput()
+        {
+            Dispose(false);
         }
     }
 }

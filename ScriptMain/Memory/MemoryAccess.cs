@@ -1,434 +1,296 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace TornadoScript.ScriptMain.Memory
 {
+    /// <summary>
+    /// Provides safe access to game memory and handles native function calls.
+    /// </summary>
     public static unsafe class MemoryAccess
     {
-        private static bool bInitialized = false;
+        #region Native Function Delegates
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
-        public delegate IntPtr FwGetAssetIndexFn(IntPtr assetStore, out int index, StringBuilder name);
+        private delegate IntPtr FwGetAssetIndexFn(IntPtr assetStore, out int index, StringBuilder name);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate int AddEntityToPoolFn(ulong address);
+        internal delegate int AddEntityToPoolFn(ulong address);
 
-        public delegate IntPtr GetPooledPtfxAddressFn(int handle);
+        private delegate IntPtr GetPooledPtfxAddressFn(int handle);
 
-        private static IntPtr PtfxAssetStorePtr;
+        #endregion
 
-        private static IntPtr ScriptEntityPoolAddr, VehiclePoolAddr, PedPoolAddr, ObjectPoolAddr;
+        #region Memory Addresses
 
-        private static FwGetAssetIndexFn FwGetAssetIndex;
+        private static IntPtr _ptfxAssetStorePtr;
+        private static IntPtr _scriptEntityPoolAddr;
+        private static IntPtr _vehiclePoolAddr;
+        private static IntPtr _pedPoolAddr;
+        private static IntPtr _objectPoolAddr;
 
-        public static AddEntityToPoolFn AddEntityToPool;
+        #endregion
 
-        private static readonly uint PtfxColourHash = (uint)Game.GenerateHash("ptxu_Colour");
+        #region Function Pointers
 
-        private static Dictionary<string, IntPtr> ptfxRulePtrList = new Dictionary<string, IntPtr>();
+        private static FwGetAssetIndexFn _fwGetAssetIndex;
+        internal static AddEntityToPoolFn AddEntityToPool { get; private set; }
 
-        /*
-        struct fwPool
-        {
-         void *m_pData;
-         unsigned __int8 *m_bitMap;
-         int m_count;
-         int m_itemSize;
-         int unkItemIndex;
-         int nextFreeSlotIndex;
-         unsigned int m_flags;
-         char pad1[4];
-         };
-         */
 
+        #endregion
+
+        #region Constants
+
+        private static readonly uint PtfxColourHash = StringHash.AtStringHash("ptxu_Colour", 0);
+        private const int MaxPoolSize = 1024;
+
+        #endregion
+
+        #region State
+
+        private static bool _initialized;
+        private static readonly Dictionary<string, IntPtr> _ptfxRulePtrList = new Dictionary<string, IntPtr>();
+        private static readonly object _lock = new object();
+
+        #endregion
+
+        /// <summary>
+        /// Initializes the memory access system. Must be called before using any other functionality.
+        /// </summary>
         public static void Initialize()
         {
-            #region SetupPTFXAssetStore
+            if (_initialized) return;
 
-            var pattern = new Pattern("\x0F\xBF\x04\x9F\xB9", "xxxxx");
+            lock (_lock)
+            {
+                if (_initialized) return;
 
+                try
+                {
+                    InitializePtfxAssetStore();
+                    InitializeEntityPools();
+                    _initialized = true;
+                }
+                catch (Exception ex)
+                {
+                    GTA.UI.Notification.PostTicker($"MemoryAccess initialization failed: {ex.Message}", false, false);
+                    throw;
+                }
+            }
+        }
+
+        private static void InitializePtfxAssetStore()
+        {
+            var pattern = new Pattern("\\x0F\\xBF\\x04\\x9F\\xB9", "xxxxx");
             var result = pattern.Get(0x19);
 
             if (result != IntPtr.Zero)
             {
                 var rip = result.ToInt64() + 7;
                 var value = Marshal.ReadInt32(IntPtr.Add(result, 3));
-                PtfxAssetStorePtr = new IntPtr(rip + value);
+                _ptfxAssetStorePtr = new IntPtr(rip + value);
+            }
+            else
+            {
+                throw new InvalidOperationException("Failed to find PTFX asset store pattern");
             }
 
-            #endregion
-
-            #region SetupfwGetAssetIndex
-
-            pattern = new Pattern("\x41\x8B\xDE\x4C\x63\x00", "xxxxx?");
-
+            pattern = new Pattern("\\x41\\x8B\\xDE\\x4C\\x63\\x00", "xxxxx?");
             result = pattern.Get();
 
             if (result != IntPtr.Zero)
             {
                 var rip = result.ToInt64();
                 var value = Marshal.ReadInt32(result - 4);
-                FwGetAssetIndex = Marshal.GetDelegateForFunctionPointer<FwGetAssetIndexFn>(new IntPtr(rip + value));
+                _fwGetAssetIndex = Marshal.GetDelegateForFunctionPointer<FwGetAssetIndexFn>(new IntPtr(rip + value));
             }
-
-            // Entity Pool ->
-
-            pattern = new Pattern("\x4C\x8B\x0D\x00\x00\x00\x00\x44\x8B\xC1\x49\x8B\x41\x08", "xxx????xxxxxxx");
-
-            result = pattern.Get(7);
-
-            if (result != IntPtr.Zero)
+            else
             {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                ScriptEntityPoolAddr = Marshal.ReadIntPtr(new IntPtr(rip + value));
-
-               // UI.ShowSubtitle(ScriptEntityPoolAddr.ToString("X"));
+                throw new InvalidOperationException("Failed to find FwGetAssetIndex pattern");
             }
+        }
 
-            // Vehicle Pool ->
+        private static void InitializeEntityPools()
+        {
+            // Entity Pool
+            InitializePool("\\x4C\\x8B\\x0D\\x00\\x00\\x00\\x00\\x44\\x8B\\xC1\\x49\\x8B\\x41\\x08",
+                "xxx????xxxxxxx", 7, addr => _scriptEntityPoolAddr = addr);
 
-            pattern = new Pattern("\x48\x8B\x05\x00\x00\x00\x00\xF3\x0F\x59\xF6\x48\x8B\x08", "xxx????xxxxxxx");
+            // Vehicle Pool
+            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\xF3\\x0F\\x59\\xF6\\x48\\x8B\\x08",
+                "xxx????xxxxxxx", 7, addr => _vehiclePoolAddr = addr);
 
-            result = pattern.Get(7);
+            // Ped Pool
+            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\x41\\x0F\\xBF\\xC8\\x0F\\xBF\\x40\\x10",
+                "xxx????xxxxxxxx", 7, addr => _pedPoolAddr = addr);
 
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                VehiclePoolAddr = Marshal.ReadIntPtr(new IntPtr(rip + value));
+            // Object Pool
+            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\x8B\\x78\\x10\\x85\\xFF",
+                "xxx????xxxxx", 7, addr => _objectPoolAddr = addr);
 
-             //   UI.ShowSubtitle(VehiclePoolAddr.ToString("X"));
-            }
-
-            // Ped Pool ->
-
-            pattern = new Pattern("\x48\x8B\x05\x00\x00\x00\x00\x41\x0F\xBF\xC8\x0F\xBF\x40\x10", "xxx????xxxxxxxx");
-
-            result = pattern.Get(7);
-
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                PedPoolAddr = Marshal.ReadIntPtr(new IntPtr(rip + value));
-
-              //  UI.ShowSubtitle(PedPoolAddr.ToString("X"));
-            }
-
-            // Object Pool ->
-
-            pattern = new Pattern("\x48\x8B\x05\x00\x00\x00\x00\x8B\x78\x10\x85\xFF", "xxx????xxxxx");
-
-            result = pattern.Get(7);
-
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                ObjectPoolAddr = Marshal.ReadIntPtr(new IntPtr(rip + value));
-
-              //  UI.ShowSubtitle(ObjectPoolAddr.ToString("X"));
-            }
-
-            pattern = new Pattern("\x48\xF7\xF9\x49\x8B\x48\x08\x48\x63\xD0\xC1\xE0\x08\x0F\xB6\x1C\x11\x03\xD8", "xxxxxxxxxxxxxxxxxxx");
-
-            result = pattern.Get();
+            // AddEntityToPool
+            var pattern = new Pattern("\\x48\\xF7\\xF9\\x49\\x8B\\x48\\x08\\x48\\x63\\xD0\\xC1\\xE0\\x08\\x0F\\xB6\\x1C\\x11\\x03\\xD8",
+                "xxxxxxxxxxxxxxxxxxx");
+            var result = pattern.Get();
 
             if (result != IntPtr.Zero)
             {
                 AddEntityToPool = Marshal.GetDelegateForFunctionPointer<AddEntityToPoolFn>(IntPtr.Subtract(result, 0x68));
-
-                //UI.ShowSubtitle(result.ToString("X"));
             }
-
-            // WinHelper.CopyTlsValues(WinHelper.GetProcessMainThreadId(), Win32Native.GetCurrentThreadId(), 0xC8, 0xC0, 0xB8);
-
-            #endregion
-
-            bInitialized = true;
+            else
+            {
+                throw new InvalidOperationException("Failed to find AddEntityToPool pattern");
+            }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Vector3 GetEntityPosition(IntPtr entity)
+        private static void InitializePool(string pattern, string mask, int offset, Action<IntPtr> setter)
         {
-            return (Vector3)Marshal.PtrToStructure(entity + 0x90, typeof(Vector3));
+            var pat = new Pattern(pattern, mask);
+            var result = pat.Get(offset);
+
+            if (result != IntPtr.Zero)
+            {
+                var rip = result.ToInt64();
+                var value = Marshal.ReadInt32(result - 4);
+                setter(Marshal.ReadIntPtr(new IntPtr(rip + value)));
+            }
+            else
+            {
+                throw new InvalidOperationException($"Failed to find pattern: {pattern}");
+            }
         }
 
-        public static unsafe IList<Entity> CollectEntitiesFull()
+        /// <summary>
+        /// Gets all entities currently in the game world.
+        /// </summary>
+        public static IEnumerable<Entity> GetAllEntities()
         {
-            if (bInitialized == false)
-                return null;
-
-            FwPool * entityPool = (FwPool*)ScriptEntityPoolAddr;
-
-            VehiclePool * vehiclePool = *(VehiclePool**)VehiclePoolAddr;
-
-            GenericPool * pedPool = (GenericPool*)PedPoolAddr;
-
-            GenericPool * objectPool = (GenericPool*)ObjectPoolAddr;
-
-            List<Entity> list = new List<Entity>();
-
-            for (uint i = 0; i < vehiclePool->size; i++)
+            if (!_initialized)
             {
-                if (entityPool->IsFull())
-                {
-                    break;
-                }
-
-                if (vehiclePool->IsValid(i))
-                {
-                    list.Add(new Vehicle(AddEntityToPool(vehiclePool->poolAddress[i])));
-                }
+                throw new InvalidOperationException("MemoryAccess not initialized");
             }
 
-            for (uint i = 0; i < pedPool->size; i++)
-            {
-                if (entityPool->IsFull())
-                {
-                    break;
-                }
+            var poolItems = Marshal.ReadIntPtr(_scriptEntityPoolAddr);
+            var bitMap = Marshal.ReadIntPtr(_scriptEntityPoolAddr + 0x8);
+            var count = Marshal.ReadInt32(_scriptEntityPoolAddr + 0x10);
 
-                if (pedPool->IsValid(i))
-                {
-                    var address = pedPool->GetAddress(i);
+            count = Math.Min(count, MaxPoolSize); // Safety limit
 
-                    if (address != 0)
-                    {
-                        list.Add(new Ped(AddEntityToPool(address)));
-                    }
-                }
-            }
-
-            for (uint i = 0; i < objectPool->size; i++)
-            {
-                if (entityPool->IsFull())
-                {
-                    break;
-                }
-
-                if (objectPool->IsValid(i))
-                {
-                    var address = objectPool->GetAddress(i);
-
-                    if (address != 0)
-                    {
-                        list.Add(new Ped(AddEntityToPool(address)));
-                    }
-                }
-            }
-
-            return list;
-        }
-
-        public static IEnumerable<Entity> GetAllEntitiesInternal()
-        {
-            if (bInitialized == false)
-                yield return null;
-
-            var poolItems = Marshal.ReadIntPtr(ScriptEntityPoolAddr);
-
-            var bitMap = Marshal.ReadIntPtr(ScriptEntityPoolAddr + 0x8);
-
-            var count = Marshal.ReadInt32(ScriptEntityPoolAddr + 0x10);
-
+            var entities = new List<Entity>();
             for (int i = 0; i < count; i++)
             {
                 var bitset = Marshal.ReadByte(bitMap + i);
-                if ((bitset & 0x80) != 0)
-                    continue;
-                var handle = (i << 8) + bitset;
+                if ((bitset & 0x80) != 0) continue;
 
+                var handle = (i << 8) + bitset;
                 var type = Function.Call<int>(Hash.GET_ENTITY_TYPE, handle);
-       
+
+                Entity entity;
                 switch (type)
                 {
                     case 1:
-                        yield return new Ped(handle);
+                        entity = World.GetAllPeds().FirstOrDefault(p => p.Handle == handle);
                         break;
                     case 2:
-                        yield return new Vehicle(handle);
+                        entity = World.GetAllVehicles().FirstOrDefault(v => v.Handle == handle);
                         break;
                     case 3:
-                        yield return new Prop(handle);
+                        entity = World.GetAllProps().FirstOrDefault(p => p.Handle == handle);
                         break;
+                    default:
+                        entity = null;
+                        break;
+                }
 
+                if (entity != null)
+                {
+                    entities.Add(entity);
                 }
             }
-        }
-        
-        private static PgDictionary* GetPtfxRuleDictionary(string ptxAssetName)
-        {
-            if (bInitialized == false)
-                return null;
-
-            var assetStore = Marshal.PtrToStructure<PtfxAssetStore>(PtfxAssetStorePtr);
-
-            FwGetAssetIndex(PtfxAssetStorePtr, out var index, new StringBuilder(ptxAssetName));
-
-            var ptxFxListPtr = Marshal.ReadIntPtr(assetStore.Items + assetStore.ItemSize * index);
-
-            return (PgDictionary*)Marshal.ReadIntPtr(ptxFxListPtr + 0x48);
+            return entities;
         }
 
-        public static bool FindPtxEffectRule(PgDictionary* ptxRulesDict, string fxName, out IntPtr result)
+        /// <summary>
+        /// Safely reads a value from memory.
+        /// </summary>
+        public static T ReadMemory<T>(IntPtr address, int offset = 0) where T : unmanaged
         {
-            if (bInitialized == false)
+            if (address == IntPtr.Zero)
             {
-                result = IntPtr.Zero;
-                return false;
+                throw new ArgumentNullException(nameof(address));
             }
 
-            for (var i = 0; i < ptxRulesDict->ItemsCount; i++)
+            try
             {
-                var itAddress = Marshal.ReadIntPtr(ptxRulesDict->Items + i * 8);
+                return Marshal.PtrToStructure<T>(IntPtr.Add(address, offset));
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to read memory at {address + offset:X}", ex);
+            }
+        }
 
-                if (itAddress == IntPtr.Zero) continue;
+        /// <summary>
+        /// Safely writes a value to memory.
+        /// </summary>
+        public static void WriteMemory<T>(IntPtr address, T value, int offset = 0) where T : unmanaged
+        {
+            if (address == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(address));
+            }
 
-                var szName = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(itAddress + 0x20));
+            try
+            {
+                Marshal.StructureToPtr(value, IntPtr.Add(address, offset), false);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to write memory at {address + offset:X}", ex);
+            }
+        }
 
-                if (szName != fxName) continue;
+        /// <summary>
+        /// Checks if an address is valid for reading/writing.
+        /// </summary>
+        public static bool IsAddressValid(IntPtr address)
+        {
+            if (address == IntPtr.Zero) return false;
 
-                result = itAddress;
-
+            try
+            {
+                Marshal.ReadByte(address);
                 return true;
             }
-
-            result = IntPtr.Zero;
-
-            return false;
-        }
-
-        /// <summary>
-        /// Get emitter by its name for the given asset rule
-        /// </summary>
-        /// <param name="ptxAssetRulePtr">Pointer to the PtfxAssetRule instance</param>
-        /// <param name="emitterName">Name of the child emitter object</param>
-        /// <returns></returns>
-        private static PtxEventEmitter* GetPtfxEventEmitterByName(IntPtr ptxAssetRulePtr, string emitterName)
-        {
-            if (bInitialized == false)
-                return null;
-
-            PtxEventEmitter* foundEmitter = null;
-
-            var ptxRule = Marshal.PtrToStructure<PtxEffectRule>(ptxAssetRulePtr);
-
-            for (var i = 0; i < ptxRule.EmittersCount; i++)
+            catch
             {
-                var emitter = ptxRule.Emitters[i];
-
-                var szName = Marshal.PtrToStringAnsi(emitter->SzEmitterName);
-
-                if (szName == emitterName)
-                {
-                    foundEmitter = emitter;
-
-                    break;
-                }
+                return false;
             }
-
-            return foundEmitter;
         }
 
-        /// <summary>
-        /// Lightweight function for when we know the emitters index
-        /// </summary>
-        /// <param name="ptxAssetRulePtr"></param>
-        /// <param name="emitterIndex"></param>
-        /// <returns></returns>
-        private static PtxEventEmitter* GetPtfxEventEmitterByIndex(IntPtr ptxAssetRulePtr, int emitterIndex)
-        {
-            return (*(PtxEventEmitter***)IntPtr.Add(ptxAssetRulePtr, 0x38))[emitterIndex];
-        }
+        #region IDisposable Pattern for Cleanup
 
-        public static void SetPtfxLOD(string baseAsset, string particleName)
+        private static class Cleanup
         {
-            string key = baseAsset + ':' + particleName;
-
-            if (!ptfxRulePtrList.TryGetValue(key, out var result) &&
-                !FindPtxEffectRule(GetPtfxRuleDictionary(baseAsset), particleName, out result))
+            public static void Release()
             {
-                return;
-            }
+                _ptfxRulePtrList.Clear();
+                _initialized = false;
 
-            ptfxRulePtrList[key] = result;
-        }
-
-        public static void SetPtfxColor(string baseAsset, string particleName, int emitterIndex, Color newColor)
-        {
-            if (bInitialized == false)
-                return;
-
-            string key = baseAsset + ':' + particleName;
-
-            if (!ptfxRulePtrList.TryGetValue(key, out var result) && 
-                !FindPtxEffectRule(GetPtfxRuleDictionary(baseAsset), particleName, out result)) {
-                return;
-            }
-
-            ptfxRulePtrList[key] = result;
-
-            PtxEventEmitter* emitter = GetPtfxEventEmitterByIndex(result, emitterIndex);
-
-            Debug.Assert(emitter != null);
-
-            SetEmitterColour(emitter, newColor);
-        }
-
-        private static void SetEmitterColour(PtxEventEmitter* emitter, Color colour)
-        {
-            SetEmitterColour(emitter, colour.R, colour.G, colour.B, colour.A);
-        }
-
-        private static void SetEmitterColour(PtxEventEmitter* emitter, byte red, byte green, byte blue, byte alpha)
-        {      
-            var r = 1.0f / 255 * red;
-            var g = 1.0f / 255 * green;
-            var b = 1.0f / 255 * blue;
-            var a = 1.0f / 255 * alpha;
-
-            for (var i = 0; i < emitter->ParticleRule->BehavioursCount; i++)
-            {
-                Ptxu_Colour* behaviour = emitter->ParticleRule->Behaviours[i];
-
-                if (behaviour->HashName != PtfxColourHash) continue;
-
-                for (var x = 0; x < behaviour->NumFrames; x++)
-                {
-                    PtxKeyframeProp* keyframe = behaviour->KeyframeProps[x];
-
-                    if (keyframe->Current.Items == IntPtr.Zero) continue;
-
-                    var items = (PtxVarVector*)keyframe->Current.Items;
-
-                    for (var y = 0; y < keyframe->Current.Count; y++)
-                    {
-                        if (items == null) continue;
-
-                        items[y].Min.R = r;
-                        items[y].Min.G = g;
-                        items[y].Min.B = b;
-                        items[y].Min.A = a;
-
-                        items[y].Max.R = r;
-                        items[y].Max.G = g;
-                        items[y].Max.B = b;
-                        items[y].Max.A = a;
-                    }
-                }
-
-                break;
+                // Release any other resources
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
             }
         }
+
+        #endregion
     }
 }

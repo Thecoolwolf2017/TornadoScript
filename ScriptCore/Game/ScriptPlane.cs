@@ -1,4 +1,5 @@
 ﻿using GTA;
+using GTA.Math;
 using GTA.Native;
 
 namespace TornadoScript.ScriptCore.Game
@@ -6,26 +7,30 @@ namespace TornadoScript.ScriptCore.Game
     /// <summary>
     /// Represents a plane.
     /// </summary>
-    public class ScriptPlane : ScriptEntity<Vehicle>
+    public class ScriptPlane : ScriptEntity<Vehicle>, IScriptEntity
+
     {
         /// <summary>
         /// Fired when the vehicle is no longer drivable.
         /// </summary>
         public event ScriptEntityEventHandler Undrivable;
+        public Vehicle Ref { get; private set; }
 
         /// <summary>
         /// State of the vehicle landing gear.
         /// </summary>
         public LandingGearState LandingGearState
         {
-            get { return (LandingGearState)Function.Call<int>(Hash._GET_VEHICLE_LANDING_GEAR, Ref.Handle); }
-            set { Function.Call(Hash._SET_VEHICLE_LANDING_GEAR, Ref.Handle, (int)value); }
+            get { return (LandingGearState)Function.Call<int>(Hash.GET_LANDING_GEAR_STATE, Ref.Handle); }
+            set { Function.Call(Hash.CONTROL_LANDING_GEAR, Ref.Handle, (int)value); }
         }
 
         private int undrivableTicks = 0;
 
-        public ScriptPlane(Vehicle baseRef) : base(baseRef)
-        { }
+        protected override Entity CreateEntity(Vector3 position)
+        {
+            return World.CreateVehicle(VehicleHash.Lazer, position);
+        }
 
         protected virtual void OnUndrivable(ScriptEntityEventArgs e)
         {

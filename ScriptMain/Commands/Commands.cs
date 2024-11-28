@@ -21,16 +21,17 @@ namespace TornadoScript.ScriptMain.Commands
             var varName = args[0];
 
 
-            if (int.TryParse(args[1], out var i))
+            if (int.TryParse(args[1], out var _i))
             {
                 var foundVar = ScriptThread.GetVar<int>(varName);
-
                 if (foundVar != null)
                 {
-                    return !ScriptThread.SetVar(varName, i) ?
-                        "Failed to set the (integer) variable. Is it readonly?" : null;
+                    return !ScriptThread.SetVar(varName, _i)
+                        ? "Failed to set the (integer) variable. Is it readonly?"
+                        : null;
                 }
             }
+
 
             if (float.TryParse(args[1], out var f))
             {
@@ -38,8 +39,9 @@ namespace TornadoScript.ScriptMain.Commands
 
                 if (foundVar != null)
                 {
-                    return !ScriptThread.SetVar(varName, f) ?
-                        "Failed to set the (float) variable. Is it readonly?" : null;
+                    return !ScriptThread.SetVar(varName, f)
+                        ? "Failed to set the (float) variable. Is it readonly?"
+                        : null;
                 }
             }
 
@@ -49,8 +51,9 @@ namespace TornadoScript.ScriptMain.Commands
 
                 if (foundVar != null)
                 {
-                    return !ScriptThread.SetVar(varName, b) ?
-                        "Failed to set the (bool) variable. Is it readonly?" : null;
+                    return !ScriptThread.SetVar(varName, b)
+                        ? "Failed to set the (bool) variable. Is it readonly?"
+                        : null;
                 }
             }
 
@@ -62,8 +65,13 @@ namespace TornadoScript.ScriptMain.Commands
             if (args.Length < 1) return "ResetVar: Invalid format.";
 
             var varName = args[0];
-
-
+            var intVar = ScriptThread.GetVar<int>(varName);
+            var _ = ScriptThread.SetVar<float>(varName, intVar);
+            if (intVar != null)
+            {
+                intVar.Value = intVar.Default;
+                return null;
+            }
             if (int.TryParse(args[1], out var i))
             {
                 var foundVar = ScriptThread.GetVar<int>(varName);
@@ -103,55 +111,47 @@ namespace TornadoScript.ScriptMain.Commands
             return "Variable '" + args[0] + "' not found.";
         }
 
-        public static string ListVars(params string[] args)
+        public static string ListVars(string[] _)
         {
-            var foundCount = 0;
+            var vars = ScriptThread.Vars;
+            var result = new StringBuilder();
+            result.AppendLine("Available variables:");
 
-            var frontend = ScriptThread.Get<FrontendManager>();
-
-            foreach (var var in ScriptThread.Vars)
+            foreach (var var in vars)
             {
-                frontend.WriteLine(var.Key + (var.Value.ReadOnly ? " (read-only) " : ""));
-
-                foundCount++;
+                result.AppendLine($"{var.Key} = {var.Value}");
             }
 
-            return "Found " + foundCount + " vars.";
+            return result.ToString();
         }
 
-        public static string SummonVortex(params string[] args)
+        public static string SummonVortex(string[] _)
         {
             var vtxmgr = ScriptThread.Get<TornadoFactory>();
-
             if (vtxmgr.ActiveVortexCount > 0)
                 vtxmgr.ActiveVortexList[0].Position = Game.Player.Character.Position;
-
             return "Vortex summoned";
         }
 
-        public static string SpawnVortex(params string[] args)
+        public static string SpawnVortex(string[] _)
         {
             var vtxmgr = ScriptThread.Get<TornadoFactory>();
-
             Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
-
             Function.Call(Hash.SET_WIND, 70.0f);
-
             var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
-
             vtxmgr.CreateVortex(position);
-
-            return "Vortex spawned (" + position + ")";
+            return "Vortex spawned";
         }
 
-        public static string ShowHelp(params string[] args)
+        public static string ShowHelp(params string[] _)
         {
-            var frontend = ScriptThread.Get<FrontendManager>();
-
-            frontend.WriteLine("~r~set~w~: Set a variable\t\t~r~reset~w~: Reset a variable\t\t~r~ls~w~: List all vars~r~spawn~w~: Spawn a tornado vortex\t\t~r~summon~w~: Summon the vortex to your current position\t\t");
-
-            return "Commands:";
+            return "Available commands:\n" +
+                   "spawn - Create a new tornado\n" +
+                   "summon - Move existing tornado to player\n" +
+                   "set <var> <value> - Set variable value\n" +
+                   "reset <var> - Reset variable to default\n" +
+                   "ls/list - List all variables\n" +
+                   "help/? - Show this help";
         }
-
     }
 }
