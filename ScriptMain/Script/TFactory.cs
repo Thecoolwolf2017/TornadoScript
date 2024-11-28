@@ -91,46 +91,78 @@ namespace TornadoScript.ScriptMain.Script
         /// <returns></returns>
         public TornadoVortex CreateVortex(Vector3 position)
         {
-            if (spawnInProgress) // tornado already spawning in
-                return null;
-
-            for (var i = _activeVortexList.Length - 1; i > 0; i--)
-                _activeVortexList[i] = _activeVortexList[i - 1];
-
-            float groundHeight;
-            World.GetGroundHeight(new Vector3(position.X, position.Y, 1000f), out groundHeight);
-            position.Z = groundHeight - 10.0f;
-
-            var tVortex = new TornadoVortex(position, false);
-
-            tVortex.Build();
-
-            _activeVortexList[0] = tVortex;
-
-            ActiveVortexCount = Math.Min(ActiveVortexCount + 1, _activeVortexList.Length);
-
-            if (soundEnabled)
+            try
             {
-                if (_tornadoLowRumble != null)
+                Logger.Log("Starting CreateVortex");
+                if (spawnInProgress)
                 {
-                    _tornadoLowRumble.SetVolume(0.0f);
-
-                    var volumeLevel = 1.0f - (1.0f / 300.0f * Vector3.Distance2D(position, GameplayCamera.Position));
-
-                    volumeLevel = volumeLevel < 0.0f ? 0.0f : volumeLevel > 1.0f ? 1.0f : volumeLevel;
-
-                    _tornadoLowRumble.DoFadeIn(5000, volumeLevel);
+                    Logger.Log("Spawn already in progress");
+                    return null;
                 }
-            }
 
-            if (ScriptThread.GetVar<bool>("notifications"))
+                Logger.Log("Shifting vortex list");
+                for (var i = _activeVortexList.Length - 1; i > 0; i--)
+                    _activeVortexList[i] = _activeVortexList[i - 1];
+
+                float groundHeight;
+                Logger.Log("Getting ground height");
+                World.GetGroundHeight(new Vector3(position.X, position.Y, 1000f), out groundHeight);
+                position.Z = groundHeight - 10.0f;
+                Logger.Log($"Ground height: {groundHeight}, Final position: {position}");
+
+                Logger.Log("Creating new TornadoVortex");
+                var tVortex = new TornadoVortex(position, false);
+
+                Logger.Log("Building vortex");
+                tVortex.Build();
+
+                Logger.Log("Adding vortex to active list");
+                _activeVortexList[0] = tVortex;
+
+                ActiveVortexCount = Math.Min(ActiveVortexCount + 1, _activeVortexList.Length);
+                Logger.Log($"Active vortex count: {ActiveVortexCount}");
+
+                if (soundEnabled)
+                {
+                    Logger.Log("Handling sound");
+                    if (_tornadoLowRumble != null)
+                    {
+                        _tornadoLowRumble.SetVolume(0.0f);
+
+                        var volumeLevel = 1.0f - (1.0f / 300.0f * Vector3.Distance2D(position, GameplayCamera.Position));
+                        volumeLevel = volumeLevel < 0.0f ? 0.0f : volumeLevel > 1.0f ? 1.0f : volumeLevel;
+                        Logger.Log($"Setting volume level: {volumeLevel}");
+
+                        _tornadoLowRumble.DoFadeIn(5000, volumeLevel);
+                    }
+                }
+
+                if (ScriptThread.GetVar<bool>("notifications"))
+                {
+                    Logger.Log("Posting notification");
+                    GTA.UI.Notification.PostTicker("Tornado spawned nearby.", false);
+                }
+
+                spawnInProgress = true;
+                Logger.Log("CreateVortex completed successfully");
+                return null;
+            }
+            catch (Exception ex)
             {
-                GTA.UI.Notification.PostTicker("Tornado spawned nearby.", false);
+                try
+                {
+                    string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TornadoScript");
+                    Directory.CreateDirectory(logDir);
+                    string errorPath = Path.Combine(logDir, "error.log");
+                    File.AppendAllText(errorPath, 
+                        $"\n=== CREATEVORTEX ERROR at {DateTime.Now} ===\n" +
+                        $"Error: {ex.Message}\n" +
+                        $"Stack Trace: {ex.StackTrace}\n");
+                    Logger.Log($"Error in CreateVortex: {ex.Message}");
+                }
+                catch { }
+                throw;
             }
-
-            spawnInProgress = true;
-
-            return null;
         }
 
         public override void OnUpdate(int gameTime)

@@ -1,5 +1,97 @@
 # TornadoScript Development Changelog
 
+## Version 1.0.3 (In Development)
+
+### Control System Overhaul
+- Changed key bindings for better user experience
+  - Moved tornado spawn/despawn to F6 key
+  - Moved console toggle to F8 key
+  - Separated console and tornado controls for clarity
+- Enhanced console functionality
+  - Enabled console by default
+  - Improved console toggle reliability
+  - Better command feedback
+
+### Variable Registration System
+#### Core Variables
+- Expanded variable registration system
+  - Added comprehensive tornado behavior variables
+  - Implemented multi-vortex support
+  - Enhanced force and movement controls
+- Added new configuration categories:
+  - UI and Control Variables
+    - `toggleconsole`: F8 key binding
+    - `enableconsole`: Enabled by default
+    - `enablekeybinds`: Control key binding system
+    - `multiVortex`: Multi-tornado support
+    - `notifications`: In-game notification system
+  - Sound Configuration
+    - `soundenabled`: Master sound toggle
+    - `sirenenabled`: Tornado siren control
+  - Vortex Core Parameters
+    - `vortexRadius`: Tornado size control
+    - `vortexParticleCount`: Visual density
+    - `vortexMaxParticleLayers`: Effect complexity
+    - `vortexLayerSeperationScale`: Particle distribution
+    - `vortexParticleAsset`: Visual asset control
+    - `vortexParticleName`: Particle system identifier
+    - `vortexEnableCloudTopParticle`: Top cloud effects
+    - `vortexEnableCloudTopParticleDebris`: Debris visualization
+  - Movement Parameters
+    - `vortexMovementEnabled`: Movement toggle
+    - `vortexMoveSpeedScale`: Movement speed (1.0f default)
+    - `vortexRotationSpeed`: Rotation speed (2.5f default)
+    - `vortexEnableSurfaceDetection`: Terrain interaction
+  - Force Parameters
+    - `vortexMaxEntityDist`: Entity affect range
+    - `vortexHorizontalPullForce`: Lateral force (15.0f default)
+    - `vortexVerticalPullForce`: Uplift force (12.0f default)
+    - `vortexTopEntitySpeed`: Maximum entity speed (30.0f default)
+    - `vortexForceScale`: Overall force multiplier (5.0f default)
+
+### Error Handling & Logging
+- Implemented comprehensive error logging
+  - Added detailed error tracking in KeyPressed method
+  - Enhanced CreateVortex error handling
+  - Improved debug information capture
+- Added extensive debug logging
+  - Tornado spawn/despawn events
+  - Variable state changes
+  - Command execution tracking
+  - Performance metrics
+
+### Documentation
+- Updated README.md
+  - New control scheme documentation
+  - Enhanced feature descriptions
+  - Updated setup instructions
+  - Added customization guide
+- Enhanced in-game help system
+  - Updated command descriptions
+  - Added new variable documentation
+  - Improved error messages
+
+### Performance Optimizations
+- Enhanced tornado physics calculations
+  - Improved force application efficiency
+  - Better entity tracking
+  - Optimized movement calculations
+- Refined particle system
+  - Better memory management
+  - Improved visual effects
+  - Reduced CPU overhead
+
+### Known Issues
+- Ongoing performance optimization for multiple tornados
+- Memory usage optimization in progress
+- Particle effect refinements needed
+
+### Future Development
+- Enhanced multi-vortex interaction system
+- Advanced weather integration
+- Improved debris physics
+- Enhanced visual effects
+
 ## Version 1.0.2 (In Development)
 
 ### Core Framework Modernization

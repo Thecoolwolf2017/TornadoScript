@@ -108,9 +108,11 @@
     <Compile Include="ScriptCore\Logger.cs" />
     <Compile Include="ScriptMain\Commands\CommandManager.cs" />
     <Compile Include="ScriptMain\Commands\Commands.cs" />
+    <Compile Include="ScriptMain\Commands\ICommandHandler.cs" />
     <Compile Include="ScriptMain\Frontend\FrontendInput.cs" />
     <Compile Include="ScriptMain\Frontend\FrontendManager.cs" />
     <Compile Include="ScriptMain\Frontend\FrontendOutput.cs" />
+    <Compile Include="ScriptMain\Script\MainScript.cs" />
     <Compile Include="ScriptMain\Script\TDebris.cs" />
     <Compile Include="ScriptMain\Utility\Audio\WavePlayer.cs" />
     <Compile Include="ScriptMain\Utility\Audio\SoundManager.cs" />
@@ -129,7 +131,6 @@
     <Compile Include="ScriptMain\Config\IniHelper.cs" />
     <Compile Include="ScriptMain\Script\TFactory.cs" />
     <Compile Include="ScriptMain\Script\TParticle.cs" />
-    <Compile Include="ScriptMain\Script\TScript.cs" />
     <Compile Include="ScriptMain\Utility\StrongRandom.cs" />
     <Compile Include="ScriptMain\Utility\Helpers.cs" />
     <Compile Include="ScriptMain\Script\TVortex.cs" />

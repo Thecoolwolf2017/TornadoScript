@@ -3,9 +3,9 @@
 Turn Los Santos into a disaster movie with the most epic tornado mod for GTA V! Create massive tornados, send cars flying, and watch skyscrapers crumble.
 
 ## 🎮 Quick Start
-1. Press **F6** - Spawn a tornado
-2. Watch the chaos unfold
-3. Press **T** - Access cool commands
+1. Press **F6** - Spawn/Despawn a tornado
+2. Press **F8** - Toggle in-game console
+3. Watch the chaos unfold!
 4. Have fun destroying Los Santos!
 
 ## ✨ Epic Features
@@ -14,13 +14,14 @@ Turn Los Santos into a disaster movie with the most epic tornado mod for GTA V! 
   - Real spinning clouds and debris
   - Cars, trees, and buildings go flying
   - Realistic destruction physics
+  - Multi-vortex support
 - 🎵 **Amazing Sound Effects**
   - Hear the roar of the storm
   - Dynamic 3D audio
   - Realistic wind and destruction sounds
 - 🎮 **Super Easy Controls**
-  - One key to rule them all (F6)
-  - Simple command system
+  - F6 to spawn/despawn tornados
+  - F8 to access console commands
   - Customizable settings
 - ⚡ **Smooth Performance**
   - Runs great on most PCs
@@ -45,16 +46,17 @@ Turn Los Santos into a disaster movie with the most epic tornado mod for GTA V! 
 
 3. Start the game and press F6!
 
-## 🎯 Cool Commands
+## 🎯 Console Commands (Press F8)
 - `spawn` = Create tornado where you stand
 - `summon` = Point and create tornado
 - `help` = See all the awesome stuff you can do
+- `clear` = Remove all active tornados
 
 ## 💡 Pro Tips
 - Start at the beach for epic wave action
 - Visit the airport for flying planes
 - Try downtown for maximum destruction
-- Use multiple tornados for chaos
+- Enable multi-vortex for extra chaos
 - Experiment with different locations
 
 ## ⚙️ Want to Customize?
@@ -62,6 +64,13 @@ Edit settings in:
 ```
 Grand Theft Auto V/scripts/TornadoScript.ini
 ```
+
+Key settings you can tweak:
+- Tornado force and pull strength
+- Movement speed and behavior
+- Particle effects and visuals
+- Sound effects and volume
+- Multi-vortex settings
 
 ## 🆘 Need Help?
 - Check [WHATSNEW.md](WHATSNEW.md) for updates
