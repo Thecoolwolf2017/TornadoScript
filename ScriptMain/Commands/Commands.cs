@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Native;
 using System;
 using System.Collections.Generic;
@@ -23,8 +23,7 @@ namespace TornadoScript.ScriptMain.Commands
 
             if (int.TryParse(args[1], out var _i))
             {
-                var foundVar = ScriptThread.GetVar<int>(varName);
-                if (foundVar != null)
+                if (ScriptThread.GetVar<int>(varName) != null)
                 {
                     return !ScriptThread.SetVar(varName, _i)
                         ? "Failed to set the (integer) variable. Is it readonly?"
@@ -65,50 +64,29 @@ namespace TornadoScript.ScriptMain.Commands
             if (args.Length < 1) return "ResetVar: Invalid format.";
 
             var varName = args[0];
+            
             var intVar = ScriptThread.GetVar<int>(varName);
-            var _ = ScriptThread.SetVar<float>(varName, intVar);
             if (intVar != null)
             {
                 intVar.Value = intVar.Default;
                 return null;
             }
-            if (int.TryParse(args[1], out var i))
+
+            var floatVar = ScriptThread.GetVar<float>(varName);
+            if (floatVar != null)
             {
-                var foundVar = ScriptThread.GetVar<int>(varName);
-
-                if (foundVar != null)
-                {
-                    foundVar.Value = foundVar.Default;
-
-                    return null;
-                }
-            }
-
-
-            if (float.TryParse(args[1], out var f))
-            {
-                var foundVar = ScriptThread.GetVar<float>(varName);
-
-                if (foundVar != null)
-                {
-                    foundVar.Value = foundVar.Default;
-
-                    return null;
-                }
-            }
-
-            if (bool.TryParse(args[1], out var b))
-            {
-                var foundVar = ScriptThread.GetVar<bool>(varName);
-
-                if (foundVar == null) return "Variable '" + args[0] + "' not found.";
-
-                foundVar.Value = foundVar.Default;
-
+                floatVar.Value = floatVar.Default;
                 return null;
             }
 
-            return "Variable '" + args[0] + "' not found.";
+            var boolVar = ScriptThread.GetVar<bool>(varName);
+            if (boolVar != null)
+            {
+                boolVar.Value = boolVar.Default;
+                return null;
+            }
+
+            return "Variable '" + varName + "' not found.";
         }
 
         public static string ListVars(string[] _)

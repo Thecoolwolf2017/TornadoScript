@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
 using System;
@@ -17,6 +17,7 @@ namespace TornadoScript.ScriptMain.Script
         public TornadoVortex Parent { get; set; }
 
         public bool IsCloud { get; }
+        public new Prop Ref { get; private set; }
 
         private Vector3 _centerPos;
 
@@ -42,7 +43,8 @@ namespace TornadoScript.ScriptMain.Script
         /// <param name="layerIdx"></param>
         public TornadoParticle(TornadoVortex vortex, Vector3 position, Vector3 angle, string fxAsset, string fxName, float radius, int layerIdx, bool isCloud = false) 
             : base(Setup(position))
-        {   
+        {
+            Ref = Setup(position);
             Parent = vortex;      
             _centerPos = position;
             _rotation = MathEx.Euler(angle);
@@ -144,7 +146,7 @@ namespace TornadoScript.ScriptMain.Script
                 _ptfx.Load();
             }
 
-            _ptfx.Start(this, scale);
+            _ptfx.Start(Ref, scale);
 
             // _ptfx.Alpha = 0.5f;
         }

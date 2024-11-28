@@ -15,6 +15,11 @@ namespace TornadoScript.ScriptCore.Game
         public Entity Entity { get; protected set; }
 
         /// <summary>
+        /// Typed reference to the entity.
+        /// </summary>
+        protected T Ref { get; set; }
+
+        /// <summary>
         /// Total entity ticks.
         /// </summary>
         public int TotalTicks { get; private set; }

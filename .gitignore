@@ -48,10 +48,18 @@ Temporary Items
 
 # GTA V Mod specific
 *.asi
-*.dll.meta
+*.dll
+!NAudio.dll
+!ScriptHookV*.dll
 *.pdb
 *.cache
 *.log
+build/
+dist/
+releases/
+mods/
+*.ini
+!default.ini
 
 # Mod build output
 bin/
@@ -118,3 +126,134 @@ crash*.txt
 
 # Mod specific temporary files
 *.hot-reload
+
+# Visual Studio / .NET
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+# The packages folder can be ignored because of Package Restore
+**/[Pp]ackages/*
+# except build/, which is used as an MSBuild target.
+!**/[Pp]ackages/build/
+
+# GTA V Mod specific
+*.asi
+*.dll
+!NAudio.dll
+!ScriptHookV*.dll
+*.pdb
+*.cache
+*.log
+build/
+dist/
+releases/
+mods/
+*.ini
+!default.ini
+
+# Build output
+[Bb]uild/
+[Dd]ist/
+[Rr]eleases/
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDE specific
+.idea/
+*.swp
+*.swo
+*~
+
+# Mod testing and development
+test_builds/
+debug_logs/
+crash_reports/
+screenshots/
+recordings/
+
+# Documentation generation
+docs/_site/
+docs/_build/
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata

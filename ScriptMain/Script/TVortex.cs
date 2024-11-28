@@ -8,12 +8,13 @@ using System.Runtime.CompilerServices;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Memory;
 using TornadoScript.ScriptMain.Utility;
+using static TornadoScript.ScriptMain.Utility.ShapeTestEx;
 
 namespace TornadoScript.ScriptMain.Script
 {
     public class TornadoVortex : ScriptExtension
     {
-        public materials LastMaterialTraversed { get; private set; } = materials.tarmac;
+        public Materials LastMaterialTraversed { get; private set; } = Materials.Tarmac;
         /// <summary>
         /// Scale of the vortex forces.
         /// </summary>
@@ -34,7 +35,7 @@ namespace TornadoScript.ScriptMain.Script
 
         private int _lifeSpan;
 
-        private struct ActiveEntity
+        private readonly struct ActiveEntity
         {
             public ActiveEntity(Entity entity, float xBias, float yBias)
             {
@@ -78,8 +79,6 @@ namespace TornadoScript.ScriptMain.Script
 
         bool _lastRaycastResultFailed;
 
-        private materials lastMaterialTraversed;
-
         private int lastParticleShapeTestTime = 0;
 
         private Color particleColorPrev, particleColorGoal;
@@ -107,7 +106,9 @@ namespace TornadoScript.ScriptMain.Script
             {
                 _destination = trackToPlayer ? _player.Position.Around(130.0f) : Helpers.GetRandomPositionFromCoords(_destination, 100.0f);
 
-                _destination.Z = World.GetGroundHeight(_destination) - 10.0f;
+                float groundHeight;
+                World.GetGroundHeight(_destination, out groundHeight);
+                _destination.Z = groundHeight - 10.0f;
 
                 var nearestRoadPos = World.GetNextPositionOnStreet(_destination);
 
@@ -223,7 +224,7 @@ namespace TornadoScript.ScriptMain.Script
             if (gameTime < _nextUpdateTime)
                 return;
 
-            foreach (var ent in MemoryAccess.CollectEntitiesFull())
+            foreach (var ent in MemoryAccess.GetAllEntities())
             {
                 if (_pulledEntities.Count >= MaxEntityCount) break;
 
@@ -246,14 +247,19 @@ namespace TornadoScript.ScriptMain.Script
         {
             if (gameTime - _lastFullUpdateTime > 5000)
             {
-                MemoryAccess.CollectEntitiesFull();
-
+                // Cache entities periodically
                 _lastFullUpdateTime = gameTime;
             }
 
             if (gameTime > _nextUpdateTime)
             {
-                foreach (var ent in MemoryAccess.GetAllEntitiesInternal())
+                // Collect all types of entities
+                var entities = new List<Entity>();
+                entities.AddRange(World.GetAllPeds());
+                entities.AddRange(World.GetAllVehicles());
+                entities.AddRange(World.GetAllProps());
+
+                foreach (var ent in entities)
                 {
                     if (_pulledEntities.Count >= MaxEntityCount) break;
 
@@ -314,10 +320,28 @@ namespace TornadoScript.ScriptMain.Script
 
                     if (gameTime - _lastPlayerShapeTestTime > 1000)
                     {
-                        var raycast = World.Raycast(entity.Position, targetPos, IntersectOptions.Map);
+                        var start = entity.Position;
+                        var end = targetPos;
+                        var rayHandle = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
+                            start.X, start.Y, start.Z,
+                            end.X, end.Y, end.Z,
+                            (int)(IntersectFlags.Map | IntersectFlags.Objects | IntersectFlags.Vehicles | IntersectFlags.Peds),
+                            null,
+                            0);
 
-                        _lastRaycastResultFailed = raycast.DitHitAnything;
+                        var hitArg = new OutputArgument();
+                        var endCoordsArg = new OutputArgument();
+                        var surfaceNormalArg = new OutputArgument();
+                        var entityHandleArg = new OutputArgument();
 
+                        Function.Call(Hash.GET_SHAPE_TEST_RESULT, rayHandle, hitArg, endCoordsArg, surfaceNormalArg, entityHandleArg);
+                        
+                        bool hit = hitArg.GetResult<bool>();
+                        Vector3 endCoords = endCoordsArg.GetResult<Vector3>();
+                        Vector3 surfaceNormal = surfaceNormalArg.GetResult<Vector3>();
+                        Entity hitEntity = Entity.FromHandle(entityHandleArg.GetResult<int>());
+
+                        _lastRaycastResultFailed = hit;
                         _lastPlayerShapeTestTime = gameTime;
                     }
 
@@ -390,19 +414,31 @@ namespace TornadoScript.ScriptMain.Script
 
             var force = (direction + new Vector3(0, 0, zForce)) * Math.Min(1.0f, scaleModifier / entityDist) * scale;
 
-            entity.ApplyForce(force, rotationalForce, ForceType.MaxForceRot);
+            entity.ApplyForce(force, rotationalForce, ForceType.InternalImpulse);
         }
 
         private bool DoEntityCapsuleTest(Vector3 start, Vector3 target, float radius, Entity ignore, out Entity hitEntity)
         {
-            var raycastResult = World.RaycastCapsule(start, target, radius, IntersectOptions.Everything, ignore);
+            var shapeTest = ShapeTest.StartTestCapsule(
+                start,
+                target,
+                radius,
+                IntersectFlags.Everything,
+                ignore
+            );
 
-            hitEntity = raycastResult.HitEntity;
+            var hitArg = new OutputArgument();
+            var endCoordsArg = new OutputArgument();
+            var surfaceNormalArg = new OutputArgument();
+            var entityHandleArg = new OutputArgument();
 
-            return raycastResult.DitHitEntity;
+            Function.Call(Hash.GET_SHAPE_TEST_RESULT, shapeTest, hitArg, endCoordsArg, surfaceNormalArg, entityHandleArg);
+            
+            hitEntity = Entity.FromHandle(entityHandleArg.GetResult<int>());
+            return hitArg.GetResult<bool>();
         }
 
-        private void UpdateCrosswinds(int gameTime)
+        private void UpdateCrosswinds(int _gameTime)
         {
             var forwardLeft = _position + Vector3.WorldNorth * 100.0f;
 
@@ -420,24 +456,38 @@ namespace TornadoScript.ScriptMain.Script
         {
             if (gameTime - lastParticleShapeTestTime > 1200)
             {
-                var str = ShapeTestEx.RunShapeTest(_position + Vector3.WorldUp * 10.0f,
-                    _position + Vector3.WorldDown * 10.0f, null, IntersectOptions.Everything);
+                var start = _position;
+                var end = _position - Vector3.WorldUp * 100.0f;
+                var rayHandle = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
+                    start.X, start.Y, start.Z,
+                    end.X, end.Y, end.Z,
+                    (int)(IntersectFlags.Map | IntersectFlags.Objects | IntersectFlags.Vehicles | IntersectFlags.Peds),
+                    null,
+                    0);
 
-                if (str.HitMaterial != lastMaterialTraversed)
+                var hitArg = new OutputArgument();
+                var endCoordsArg = new OutputArgument();
+                var surfaceNormalArg = new OutputArgument();
+                var entityHandleArg = new OutputArgument();
+                var materialHashArg = new OutputArgument();
+
+                Function.Call(Hash.GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL, rayHandle, hitArg, endCoordsArg, surfaceNormalArg, materialHashArg, entityHandleArg);
+                
+                if (materialHashArg.GetResult<int>() != (int)LastMaterialTraversed)
                 {
-                    switch (lastMaterialTraversed)
+                    switch (LastMaterialTraversed)
                     {
-                        case materials.sand_track:
-                        case materials.sand_compact:
-                        case materials.sand_dry_deep:
-                        case materials.sand_loose:
-                        case materials.sand_wet:
-                        case materials.sand_wet_deep:
-                        {
-                            particleColorPrev = particleColor;
-                            particleColorGoal = Color.NavajoWhite;
-                            particleLerpTime = 0.0f;
-                        }
+                        case Materials.SandTrack:
+                        case Materials.SandCompact:
+                        case Materials.SandDryDeep:
+                        case Materials.SandLoose:
+                        case Materials.SandWet:
+                        case Materials.SandWetDeep:
+                            {
+                                particleColorPrev = particleColor;
+                                particleColorGoal = Color.NavajoWhite;
+                                particleLerpTime = 0.0f;
+                            }
 
                             break;
                         default:
@@ -447,7 +497,7 @@ namespace TornadoScript.ScriptMain.Script
                             break;
                     }
 
-                    lastMaterialTraversed = str.HitMaterial;
+                    LastMaterialTraversed = (Materials)materialHashArg.GetResult<int>();
                 }
 
                 lastParticleShapeTestTime = gameTime;
@@ -459,17 +509,15 @@ namespace TornadoScript.ScriptMain.Script
                 particleColor = particleColor.Lerp(particleColorGoal, particleLerpTime);
             }
 
-            MemoryAccess.SetPtfxColor("core", "ent_amb_smoke_foundry", 0, particleColor);
-            MemoryAccess.SetPtfxColor("core", "ent_amb_smoke_foundry", 1, particleColor);
-            MemoryAccess.SetPtfxColor("core", "ent_amb_smoke_foundry", 2, particleColor);
+            Function.Call(Hash.SET_PARTICLE_FX_LOOPED_COLOUR, "core", "ent_amb_smoke_foundry", particleColor.R / 255.0f, particleColor.G / 255.0f, particleColor.B / 255.0f);
         }
 
-        private void UpdateDebrisLayer(materials material)
+        private void UpdateDebrisLayer(Materials _material)
         {
             if (Game.GameTime - _lastDebrisSpawnTime > 3000 + Probability.GetInteger(0, 5000))
             {
-              //  UI.ShowSubtitle("spawn debris");
-                
+                //  UI.ShowSubtitle("spawn debris");
+
                 new TDebris(this, _position, ScriptThread.GetVar<float>("vortexRadius"));
             }
         }
@@ -489,10 +537,10 @@ namespace TornadoScript.ScriptMain.Script
                     ChangeDestination(false);
                 }
 
-                 if (_position.DistanceTo(_player.Position) > 200.0f)
-                 {
-                     ChangeDestination(true);
-                 }
+                if (_position.DistanceTo(_player.Position) > 200.0f)
+                {
+                    ChangeDestination(true);
+                }
 
                 var vTarget = MathEx.MoveTowards(_position, _destination, ScriptThread.GetVar<float>("vortexMoveSpeedScale") * 0.287f);
 
@@ -505,7 +553,7 @@ namespace TornadoScript.ScriptMain.Script
 
             UpdatePulledEntities(gameTime, maxEntityDist);
 
-            UpdateDebrisLayer(lastMaterialTraversed);
+            UpdateDebrisLayer(LastMaterialTraversed);
             // UpdateCrosswinds(gameTime);
         }
 

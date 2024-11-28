@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Native;
 using System.Windows.Forms;
 using TornadoScript.ScriptCore.Game;
@@ -28,9 +28,12 @@ namespace TornadoScript.ScriptMain.Script
 
             if (GetVar<bool>("vortexParticleMod"))
             {
-                Function.Call(Hash.REQUEST_NAMED_PTFX_ASSET, "core"); // asset must be loaded before we can access its internal handle
-                MemoryAccess.SetPtfxColor("core", "ent_amb_smoke_foundry", 1, System.Drawing.Color.Black);
-                MemoryAccess.SetPtfxColor("core", "ent_amb_smoke_foundry", 2, System.Drawing.Color.Black);
+                // Load and set up particle effects for the tornado
+                Function.Call(Hash.REQUEST_NAMED_PTFX_ASSET, "core");
+                if (Function.Call<bool>(Hash.HAS_NAMED_PTFX_ASSET_LOADED, "core"))
+                {
+                    Function.Call(Hash.USE_PARTICLE_FX_ASSET, "core");
+                }
             }
         }
 

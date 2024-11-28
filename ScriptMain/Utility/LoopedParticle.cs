@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
 using Color = System.Drawing.Color;
@@ -72,12 +72,12 @@ namespace TornadoScript.ScriptMain.Utility
 
             _scale = scale;
 
-            Function.Call(Hash._SET_PTFX_ASSET_NEXT_CALL, AssetName);
+            Function.Call(Hash.USE_PARTICLE_FX_ASSET, AssetName);
 
             Handle = bone == null ?
                 Function.Call<int>(Hash.START_PARTICLE_FX_LOOPED_ON_ENTITY, FxName,
                 entity, offset.X, offset.Y, offset.Z, rotation.X, rotation.Y, rotation.Z, scale, 0, 0, 1) :
-                Function.Call<int>(Hash._START_PARTICLE_FX_LOOPED_ON_ENTITY_BONE, FxName,
+                Function.Call<int>(Hash.START_PARTICLE_FX_LOOPED_ON_ENTITY_BONE, FxName,
                 entity, offset.X, offset.Y, offset.Z, rotation.X, rotation.Y, rotation.Z, (int)bone, scale, 0, 0, 0);
         }
 
@@ -103,7 +103,7 @@ namespace TornadoScript.ScriptMain.Utility
 
             _scale = scale;
 
-            Function.Call(Hash._SET_PTFX_ASSET_NEXT_CALL, AssetName);
+            Function.Call(Hash.USE_PARTICLE_FX_ASSET, AssetName);
 
             Handle = Function.Call<int>(Hash.START_PARTICLE_FX_LOOPED_AT_COORD, FxName,
              position.X, position.Y, position.Z, rotation.X, rotation.Y, rotation.Z, scale, 0, 0, 0, 0);

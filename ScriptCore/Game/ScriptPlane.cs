@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
 
@@ -8,13 +8,12 @@ namespace TornadoScript.ScriptCore.Game
     /// Represents a plane.
     /// </summary>
     public class ScriptPlane : ScriptEntity<Vehicle>, IScriptEntity
-
     {
         /// <summary>
         /// Fired when the vehicle is no longer drivable.
         /// </summary>
         public event ScriptEntityEventHandler Undrivable;
-        public Vehicle Ref { get; private set; }
+        public new Vehicle Ref { get; private set; }
 
         /// <summary>
         /// State of the vehicle landing gear.

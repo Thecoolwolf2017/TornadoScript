@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using GTA.Math;
 
@@ -136,7 +136,8 @@ namespace TornadoScript.ScriptMain.Utility
             float num10 = quat.W * num;
             float num11 = quat.W * num2;
             float num12 = quat.W * num3;
-            Vector3 result;
+
+            Vector3 result = new Vector3();
             result.X = (1f - (num5 + num6)) * vec.X + (num7 - num12) * vec.Y + (num8 + num11) * vec.Z;
             result.Y = (num7 + num12) * vec.X + (1f - (num4 + num6)) * vec.Y + (num9 - num10) * vec.Z;
             result.Z = (num8 - num11) * vec.X + (num9 + num10) * vec.Y + (1f - (num4 + num5)) * vec.Z;

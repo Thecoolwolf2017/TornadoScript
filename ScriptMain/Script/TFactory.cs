@@ -1,6 +1,7 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 using GTA.Native;
+using GTA.UI;
 using System;
 using System.IO;
 using TornadoScript.ScriptCore;
@@ -96,7 +97,9 @@ namespace TornadoScript.ScriptMain.Script
             for (var i = _activeVortexList.Length - 1; i > 0; i--)
                 _activeVortexList[i] = _activeVortexList[i - 1];
 
-            position.Z = World.GetGroundHeight(position) - 10.0f;
+            float groundHeight;
+            World.GetGroundHeight(new Vector3(position.X, position.Y, 1000f), out groundHeight);
+            position.Z = groundHeight - 10.0f;
 
             var tVortex = new TornadoVortex(position, false);
 
@@ -122,7 +125,7 @@ namespace TornadoScript.ScriptMain.Script
 
             if (ScriptThread.GetVar<bool>("notifications"))
             {
-                UI.Notify("Tornado spawned nearby.");
+                GTA.UI.Notification.PostTicker("Tornado spawned nearby.", false);
             }
 
             spawnInProgress = true;
@@ -208,7 +211,7 @@ namespace TornadoScript.ScriptMain.Script
                             volumeLevel += 0.087f * (2.219f * volumeLevel);
 
                         volumeLevel = volumeLevel < 0.0f ? 0.0f : volumeLevel > 1.0f ? 1.0f : volumeLevel;             
-                   
+
                         _tornadoLowRumble.SetVolume(volumeLevel);
                     }
                 }

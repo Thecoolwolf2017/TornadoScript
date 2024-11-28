@@ -46,7 +46,7 @@ namespace TornadoScript.ScriptMain.Script
         #endregion
 
         #region Constants
-        private const float DefaultLodDistance = 1000f;
+        private const int DefaultLodDistance = 1000;
         private const float BaseHeightOffset = 5.0f;
         private const float MinRotationSpeed = 0.02f;
         private const float MaxRotationSpeed = 0.08f;
@@ -121,7 +121,7 @@ namespace TornadoScript.ScriptMain.Script
             _spawnTime = Game.GameTime;
             _rotationSpeed = Probability.GetFloat(MinRotationSpeed, MaxRotationSpeed);
             _heightOffset = new Vector3(0, 0, BaseHeightOffset + Probability.GetFloat(-2f, 2f));
-            _currentAngle = Probability.GetFloat(0, MathF.PI * 2);
+            _currentAngle = Probability.GetFloat(0, (float)Math.PI * 2);
             Name = $"Debris_{Guid.ToString().Substring(0, 8)}";
 
             // Register events
@@ -220,16 +220,18 @@ namespace TornadoScript.ScriptMain.Script
                 if (!model.IsLoaded && !model.Request(1000))
                     throw new InvalidOperationException($"Failed to load model: {_modelName}");
 
-                var prop = World.CreateProp(model, position, false, false);
-                if (prop == null)
-                    throw new InvalidOperationException($"Failed to create prop with model: {_modelName}");
+                var prop = World.CreateProp(model, position, false, false) 
+                    ?? throw new InvalidOperationException($"Failed to create prop with model: {_modelName}");
 
                 ConfigureProp(prop);
                 return prop;
             }
             finally
             {
-                model?.Dispose();
+                if (model.IsValid)
+                {
+                    model.MarkAsNoLongerNeeded();
+                }
             }
         }
 
@@ -253,8 +255,8 @@ namespace TornadoScript.ScriptMain.Script
 
             var centerPos = Parent.Position + _heightOffset;
             _prop.Position = centerPos + new Vector3(
-                _radius * MathF.Cos(_currentAngle),
-                _radius * MathF.Sin(_currentAngle),
+                _radius * (float)Math.Cos(_currentAngle),
+                _radius * (float)Math.Sin(_currentAngle),
                 0
             );
             _lastPosition = _prop.Position;

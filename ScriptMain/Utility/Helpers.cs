@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -107,10 +107,10 @@ namespace TornadoScript.ScriptMain.Utility
 
         public static void NotifyWithIcon(string title, string text, string icon)
         {
-            Function.Call(Hash._SET_NOTIFICATION_TEXT_ENTRY, "STRING");
-            Function.Call(Hash._ADD_TEXT_COMPONENT_STRING, text);
-            Function.Call(Hash._SET_NOTIFICATION_MESSAGE, icon, icon, false, 4, title, "");
-            Function.Call(Hash._DRAW_NOTIFICATION, false, true);
+            Function.Call(Hash.BEGIN_TEXT_COMMAND_THEFEED_POST, "STRING");
+            Function.Call(Hash.ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, text);
+            Function.Call(Hash.END_TEXT_COMMAND_THEFEED_POST_MESSAGETEXT, icon, icon, false, 4, title, "");
+            Function.Call(Hash.END_TEXT_COMMAND_THEFEED_POST_TICKER, false, true);
         }
     }
 }

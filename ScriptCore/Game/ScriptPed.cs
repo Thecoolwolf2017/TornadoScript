@@ -1,4 +1,4 @@
-﻿using GTA;
+using GTA;
 using GTA.Math;
 
 namespace TornadoScript.ScriptCore.Game
@@ -18,7 +18,7 @@ namespace TornadoScript.ScriptCore.Game
         /// </summary>
         public event ScriptEntityEventHandler ExitVehicle;
 
-        public Ped Ref { get; private set; }
+        public new Ped Ref { get; private set; }
         private int vehicleTicks = 0;
 
         /// <summary>
