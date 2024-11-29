@@ -37,7 +37,7 @@ namespace TornadoScript.ScriptMain.Config
         /// Value Name
         public void IniWriteValue(string section, string key, string value)
         {
-            WritePrivateProfileString(section, key, value, this.Path);
+            WritePrivateProfileString(section, key, value, Path);
         }
 
         /// <summary>
@@ -51,7 +51,7 @@ namespace TornadoScript.ScriptMain.Config
         {
             var temp = new StringBuilder(255);
             var i = GetPrivateProfileString(section, key, "", temp,
-                                            255, this.Path);
+                                            255, Path);
             return temp.ToString();
 
         }

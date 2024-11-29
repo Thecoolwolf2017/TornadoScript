@@ -1,6 +1,6 @@
+using GTA.Math;
 using System;
 using System.Collections.Generic;
-using GTA.Math;
 
 namespace TornadoScript.ScriptMain.Utility
 {
@@ -20,8 +20,8 @@ namespace TornadoScript.ScriptMain.Utility
         {
             for (int i = 0; i < 360; i++)
             {
-                _cos[i] = (float) Math.Cos(ToRadians(360 - i));
-                _sin[i] = (float) Math.Sin(ToRadians(360 - i));
+                _cos[i] = (float)Math.Cos(ToRadians(360 - i));
+                _sin[i] = (float)Math.Sin(ToRadians(360 - i));
                 _cos[i + 360] = (float)Math.Cos(ToRadians(i));
                 _sin[i + 360] = (float)Math.Sin(ToRadians(i));
             }

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Windows.Automation;
-using TornadoScript.ScriptCore.Game;
 
 namespace TornadoScript.ScriptMain.Utility
 {

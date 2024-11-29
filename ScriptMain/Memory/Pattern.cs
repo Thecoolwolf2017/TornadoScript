@@ -18,10 +18,10 @@ namespace TornadoScript.ScriptMain.Memory
             MODULEINFO module;
 
             Win32Native.GetModuleInformation(
-                Win32Native.GetCurrentProcess(), 
+                Win32Native.GetCurrentProcess(),
                 Win32Native.GetModuleHandle(null), out module, (uint)sizeof(MODULEINFO));
 
-            for (var address = module.LpBaseOfDll.ToInt64(); 
+            for (var address = module.LpBaseOfDll.ToInt64();
                 address < address + module.SizeOfImage; address++)
             {
                 if (ByteCompare((byte*)address, _bytes.ToCharArray(), _mask.ToCharArray()))

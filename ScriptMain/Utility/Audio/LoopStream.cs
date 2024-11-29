@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using NAudio.Wave;
+﻿using NAudio.Wave;
 
 namespace TornadoScript.ScriptMain.Utility
 {
@@ -12,7 +7,7 @@ namespace TornadoScript.ScriptMain.Utility
     /// </summary>
     public class LoopStream : WaveStream
     {
-        WaveStream sourceStream;
+        private WaveStream sourceStream;
 
         /// <summary>
         /// Creates a new Loop stream
@@ -22,7 +17,7 @@ namespace TornadoScript.ScriptMain.Utility
         public LoopStream(WaveStream sourceStream)
         {
             this.sourceStream = sourceStream;
-            this.EnableLooping = true;
+            EnableLooping = true;
         }
 
         /// <summary>

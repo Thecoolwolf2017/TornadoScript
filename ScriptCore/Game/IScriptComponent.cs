@@ -1,5 +1,5 @@
-﻿using System;
-using GTA.Math;
+﻿using GTA.Math;
+using System;
 
 namespace TornadoScript.ScriptCore.Game
 {

@@ -1,11 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using GTA;
-using GTA.Native;
 using GTA.Math;
+using GTA.Native;
 
 namespace TornadoScript.ScriptMain.Utility
 {
@@ -43,7 +38,7 @@ namespace TornadoScript.ScriptMain.Utility
             Vegetation = 256,
             Unk4 = 4
         }
-        public unsafe static ShapeTestResult RunShapeTest(Vector3 start, Vector3 end, Entity ignoreEntity, IntersectOptions options)
+        public static unsafe ShapeTestResult RunShapeTest(Vector3 start, Vector3 end, Entity ignoreEntity, IntersectOptions options)
         {
             var shapeTest = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
                 start.X, start.Y, start.Z, end.X, end.Y, end.Z, (int)options, ignoreEntity, 7);

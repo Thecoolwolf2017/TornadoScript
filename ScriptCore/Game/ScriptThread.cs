@@ -1,5 +1,6 @@
-﻿using System.Windows.Forms;
 using GTA;
+using System;
+using System.Windows.Forms;
 
 namespace TornadoScript.ScriptCore.Game
 {
@@ -18,10 +19,20 @@ namespace TornadoScript.ScriptCore.Game
         /// </summary>
         public static ScriptVarCollection Vars { get; private set; }
 
+        private static readonly object _initLock = new object();
+        private static bool _isInitialized = false;
+
         protected ScriptThread()
         {
-            _extensions = new ScriptExtensionPool();
-            Vars = new ScriptVarCollection();
+            lock (_initLock)
+            {
+                if (!_isInitialized)
+                {
+                    _extensions = new ScriptExtensionPool();
+                    Vars = new ScriptVarCollection();
+                    _isInitialized = true;
+                }
+            }
             Tick += (s, e) => OnUpdate(GTA.Game.GameTime);
             KeyDown += KeyPressedInternal;
         }
@@ -100,7 +111,23 @@ namespace TornadoScript.ScriptCore.Game
         /// <param name="readOnly"></param>
         public static void RegisterVar<T>(string name, T defaultValue, bool readOnly = false)
         {
-            Vars.Add(name, new ScriptVar<T>(defaultValue, readOnly));
+            if (Vars == null)
+            {
+                lock (_initLock)
+                {
+                    if (Vars == null)
+                    {
+                        Vars = new ScriptVarCollection();
+                        _isInitialized = true;
+                    }
+                }
+            }
+
+            if (!Vars.ContainsKey(name))
+            {
+                Vars.Add(name, new ScriptVar<T>(defaultValue, readOnly));
+                Logger.Log($"Registered variable {name} with default value {defaultValue}");
+            }
         }
 
         /// <summary>
@@ -123,14 +150,45 @@ namespace TornadoScript.ScriptCore.Game
         /// <returns></returns>
         public static bool SetVar<T>(string name, T value)
         {
-            var foundVar = GetVar<T>(name);
+            try
+            {
+                if (Vars == null)
+                {
+                    lock (_initLock)
+                    {
+                        if (Vars == null)
+                        {
+                            Vars = new ScriptVarCollection();
+                            _isInitialized = true;
+                            Logger.Log("Initialized ScriptVarCollection in SetVar");
+                        }
+                    }
+                }
 
-            if (foundVar.ReadOnly)
+                var foundVar = GetVar<T>(name);
+                if (foundVar == null)
+                {
+                    // Variable doesn't exist, create it
+                    Logger.Log($"Creating new variable {name} with value {value}");
+                    RegisterVar(name, value);
+                    return true;
+                }
+
+                if (foundVar.ReadOnly)
+                {
+                    Logger.Log($"Cannot set readonly variable {name}");
+                    return false;
+                }
+
+                foundVar.Value = value;
+                Logger.Log($"Set variable {name} to value {value}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in SetVar for {name}: {ex.Message}");
                 return false;
-
-            foundVar.Value = value;
-
-            return true;
+            }
         }
 
         internal virtual void KeyPressedInternal(object sender, KeyEventArgs e)
@@ -162,9 +220,5 @@ namespace TornadoScript.ScriptCore.Game
             _extensions.Clear();
             Vars.Clear();
         }
-
-
-
-
     }
 }

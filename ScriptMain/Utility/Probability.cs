@@ -45,7 +45,7 @@ namespace TornadoScript.ScriptMain.Utility
             var val = Rand.NextDouble();
             val -= 0.5;
             val *= 2;
-            return (float) val;
+            return (float)val;
         }
 
         /// <summary>
@@ -73,7 +73,7 @@ namespace TornadoScript.ScriptMain.Utility
         /// <returns></returns>
         public static int GetInteger(int min, int max, bool abs)
         {
-            var result = StrongRandom.Next(min, max);         
+            var result = StrongRandom.Next(min, max);
             return abs ? Math.Abs(result) : result;
         }
 
@@ -100,7 +100,7 @@ namespace TornadoScript.ScriptMain.Utility
         public static bool GetBoolean(float chance, int checkInterval)
         {
             if (checkInterval <= 0)
-                return StrongRandom.Next(0, 1000) < (int) (chance * 1000.0f);
+                return StrongRandom.Next(0, 1000) < (int)(chance * 1000.0f);
 
             if (Environment.TickCount - _lastCheckedTime < checkInterval)
                 return false;

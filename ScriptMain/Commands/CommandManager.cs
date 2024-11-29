@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using GTA;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Frontend;
 
@@ -20,7 +19,7 @@ namespace TornadoScript.ScriptMain.Commands
             Name = "Commands";
             _frontendMgr = ScriptThread.GetOrCreate<FrontendManager>();
             RegisterEvent("textadded");
-            
+
             InitializeCommands();
         }
 

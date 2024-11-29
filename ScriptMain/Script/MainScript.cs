@@ -1,36 +1,33 @@
-using System;
-using System.Windows.Forms;
 using GTA;
-using GTA.Native;
+using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
 using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Commands;
 using TornadoScript.ScriptMain.Config;
 using TornadoScript.ScriptMain.Frontend;
-using TornadoScript.ScriptMain.Memory;
-using TornadoScript.ScriptMain.Utility;
-using System.IO;
-using System.Threading;
 
 namespace TornadoScript.ScriptMain.Script
 {
     public sealed class MainScript : ScriptThread, IDisposable
     {
         private readonly TornadoFactory _factory;
-        private bool isInitialized;
+        private bool _isInitialized;
+        private bool _isDisposing;
+        private bool _disposed;
+        private const int ENTITY_POOL_SIZE = 50;
+        private const float ENTITY_REUSE_DISTANCE = 20f;
+        private List<Entity> entityPool = new List<Entity>();
+        private bool vortexUseEntityPool = true;
+        private KeyEventHandler _keyDownHandler;
 
         public MainScript()
         {
             try
             {
-                // Basic setup - just logging and variables
-                string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TornadoScript");
-                Directory.CreateDirectory(logDir);
-                string logPath = Path.Combine(logDir, "tornado.log");
-                File.AppendAllText(logPath, $"\n=== TornadoScript Started at {DateTime.Now} ===\n");
+                Logger.Log("MainScript constructor starting...");
 
-                Logger.Log("MainScript initialization starting...");
-                
                 // Register basic variables
                 RegisterVars();
                 Logger.Log("Variables registered");
@@ -42,43 +39,99 @@ namespace TornadoScript.ScriptMain.Script
                 Logger.Log("Managers created");
 
                 // Key handler
-                KeyDown += KeyPressed;
+                _keyDownHandler = new KeyEventHandler(KeyPressed);
+                KeyDown += _keyDownHandler;
                 Logger.Log("Key handler registered");
 
-                isInitialized = true;
+                _isInitialized = true;
                 Logger.Log("MainScript initialization complete");
             }
             catch (Exception ex)
             {
-                try
-                {
-                    string errorPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TornadoScript", "error.log");
-                    File.AppendAllText(errorPath, 
-                        $"\n=== CRITICAL ERROR at {DateTime.Now} ===\n" +
-                        $"Error: {ex.Message}\n" +
-                        $"Stack Trace: {ex.StackTrace}\n");
-                }
-                catch { }
+                LogError(ex, "Constructor");
                 throw;
+            }
+        }
+
+        void IDisposable.Dispose()
+        {
+            if (_disposed || _isDisposing) return;
+            _isDisposing = true;
+
+            try
+            {
+                Logger.Log("MainScript disposing...");
+
+                // Clean up key handler
+                if (_keyDownHandler != null)
+                {
+                    KeyDown -= _keyDownHandler;
+                    _keyDownHandler = null;
+                    Logger.Log("Key handler removed");
+                }
+
+                // Clean up entity pool
+                if (entityPool != null)
+                {
+                    foreach (var entity in entityPool)
+                    {
+                        if (entity != null && entity.Exists())
+                        {
+                            entity.Delete();
+                        }
+                    }
+                    entityPool.Clear();
+                    Logger.Log("Entity pool cleaned");
+                }
+
+                // Clean up factory
+                if (_factory != null)
+                {
+                    _factory.RemoveAll();
+                    Logger.Log("Factory cleaned");
+                }
+
+                _isInitialized = false;
+                Logger.Log("MainScript disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                LogError(ex, "Dispose");
+            }
+            finally
+            {
+                base.Dispose();
+                _disposed = true;
+                _isDisposing = false;
+            }
+        }
+
+        private void LogError(Exception ex, string context)
+        {
+            Logger.Error($"Error in {context}: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Logger.Error($"Inner Exception: {ex.InnerException.Message}");
             }
         }
 
         private void RegisterVars()
         {
-            // UI and Control Variables
-            RegisterVar("toggleconsole", Keys.F8, true);
-            RegisterVar("enableconsole", IniHelper.GetValue("Other", "EnableConsole", true));
+            // Core settings
             RegisterVar("enablekeybinds", IniHelper.GetValue("Other", "EnableKeybinds", true));
+            RegisterVar("enableconsole", IniHelper.GetValue("Other", "EnableConsole", true));
             RegisterVar("multiVortex", IniHelper.GetValue("Other", "MultiVortex", false));
+            RegisterVar("vortexUseEntityPool", IniHelper.GetValue("VortexAdvanced", "UseInternalPool", true));
+
+            // UI and Control Variables
+            RegisterVar("toggleconsole", IniHelper.GetValue("Controls", "ToggleConsole", Keys.F8), true);
             RegisterVar("notifications", IniHelper.GetValue("Other", "Notifications", true));
-            
+
             // Sound Variables
             RegisterVar("soundenabled", IniHelper.GetValue("Sound", "Enabled", true));
             RegisterVar("sirenenabled", IniHelper.GetValue("Sound", "SirenEnabled", true));
-            
-            // Vortex Core Variables
-            RegisterVar("vortexUseEntityPool", IniHelper.GetValue("VortexAdvanced", "UseInternalPool", true));
-            RegisterVar("vortexParticleMod", IniHelper.GetValue("Other", "ParticleMod", true));
+
+            // Vortex behavior
             RegisterVar("vortexRadius", IniHelper.GetValue("VortexCore", "Radius", 15.0f));
             RegisterVar("vortexParticleCount", IniHelper.GetValue("VortexCore", "ParticleCount", 10));
             RegisterVar("vortexMaxParticleLayers", IniHelper.GetValue("VortexCore", "MaxParticleLayers", 8));
@@ -87,28 +140,67 @@ namespace TornadoScript.ScriptMain.Script
             RegisterVar("vortexParticleName", IniHelper.GetValue("VortexCore", "ParticleName", "eject_gas"));
             RegisterVar("vortexEnableCloudTopParticle", IniHelper.GetValue("VortexCore", "EnableCloudTop", true));
             RegisterVar("vortexEnableCloudTopParticleDebris", IniHelper.GetValue("VortexCore", "EnableCloudTopDebris", true));
-            
+
             // Vortex Movement Variables
             RegisterVar("vortexMovementEnabled", IniHelper.GetValue("VortexMovement", "Enabled", true));
             RegisterVar("vortexMoveSpeedScale", IniHelper.GetValue("VortexMovement", "SpeedScale", 1.0f));
             RegisterVar("vortexRotationSpeed", IniHelper.GetValue("VortexMovement", "RotationSpeed", 1.0f));
             RegisterVar("vortexEnableSurfaceDetection", IniHelper.GetValue("VortexMovement", "EnableSurfaceDetection", true));
-            
+
             // Entity Interaction Variables
             RegisterVar("vortexMaxEntityDist", IniHelper.GetValue("VortexEntities", "MaxEntityDistance", 100.0f));
             RegisterVar("vortexHorizontalPullForce", IniHelper.GetValue("VortexForces", "HorizontalPull", 15.0f));
             RegisterVar("vortexVerticalPullForce", IniHelper.GetValue("VortexForces", "VerticalPull", 12.0f));
             RegisterVar("vortexTopEntitySpeed", IniHelper.GetValue("VortexForces", "TopEntitySpeed", 30.0f));
-            
-            // Movement and Physics
             RegisterVar("vortexForceScale", IniHelper.GetValue("VortexForces", "ForceScale", 5.0f));
-            RegisterVar("vortexRotationSpeed", IniHelper.GetValue("VortexMovement", "RotationSpeed", 2.5f));
-            RegisterVar("vortexMoveSpeedScale", IniHelper.GetValue("VortexMovement", "SpeedScale", 1.0f));
-            RegisterVar("vortexMovementEnabled", IniHelper.GetValue("VortexMovement", "Enabled", true));
-            RegisterVar("vortexEnableSurfaceDetection", IniHelper.GetValue("VortexMovement", "EnableSurfaceDetection", true));
         }
 
-        private void KeyPressed(object sender, KeyEventArgs e)
+        private Entity GetPooledEntity()
+        {
+            if (!vortexUseEntityPool || entityPool.Count >= ENTITY_POOL_SIZE)
+                return null;
+
+            // Try to reuse an existing entity that's far enough away
+            foreach (Entity entity in entityPool)
+            {
+                if (entity != null && entity.Position.DistanceTo(Game.Player.Character.Position) > ENTITY_REUSE_DISTANCE)
+                {
+                    entityPool.Remove(entity);
+                    return entity;
+                }
+            }
+
+            return null;
+        }
+
+        private void AddToEntityPool(Entity entity)
+        {
+            if (!vortexUseEntityPool || entityPool.Count >= ENTITY_POOL_SIZE)
+                return;
+
+            if (entity != null && !entityPool.Contains(entity))
+            {
+                entityPool.Add(entity);
+                Console.WriteLine($"Added entity to pool. Pool size: {entityPool.Count}/{ENTITY_POOL_SIZE}");
+            }
+        }
+
+        private void CleanupEntityPool()
+        {
+            if (entityPool == null)
+                return;
+
+            foreach (Entity entity in entityPool)
+            {
+                if (entity != null)
+                {
+                    entity.Delete();
+                }
+            }
+            entityPool.Clear();
+        }
+
+        private async void KeyPressed(object sender, KeyEventArgs e)
         {
             try
             {
@@ -118,12 +210,29 @@ namespace TornadoScript.ScriptMain.Script
                     return;
                 }
 
+                var frontendMgr = GetOrCreate<FrontendManager>();
+                if (frontendMgr == null) return;
+
+                // Handle console toggle
                 if (e.KeyCode == Keys.F8 && GetVar<bool>("enableconsole"))
                 {
                     Logger.Log("F8 key pressed, toggling console");
-                    GetVar<bool>("toggleconsole");
+                    if (frontendMgr.IsConsoleShowing)
+                        frontendMgr.HideConsole();
+                    else
+                        frontendMgr.ShowConsole();
+                    return;
                 }
 
+                // Pass key events to console if it's showing
+                if (frontendMgr.IsConsoleShowing)
+                {
+                    frontendMgr.HandleKeyPress(e);
+                    e.Handled = true;  // Mark the event as handled to prevent it from reaching the game
+                    return;
+                }
+
+                // Handle tornado toggle
                 if (_factory != null && e.KeyCode == Keys.F6)
                 {
                     Logger.Log("F6 key pressed, attempting to handle tornado");
@@ -137,24 +246,22 @@ namespace TornadoScript.ScriptMain.Script
                         Logger.Log("Creating new tornado");
                         var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
                         Logger.Log($"Spawn position: {position}");
-                        _factory.CreateVortex(position);
+                        var task = _factory.CreateVortex(position);
+                        try
+                        {
+                            await task;
+                            Logger.Log("Tornado created successfully");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error($"Failed to create tornado: {ex.Message}");
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                try
-                {
-                    string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TornadoScript");
-                    Directory.CreateDirectory(logDir);
-                    string errorPath = Path.Combine(logDir, "error.log");
-                    File.AppendAllText(errorPath, 
-                        $"\n=== KEYPRESS ERROR at {DateTime.Now} ===\n" +
-                        $"Error: {ex.Message}\n" +
-                        $"Stack Trace: {ex.StackTrace}\n");
-                    Logger.Log($"Error in KeyPressed: {ex.Message}");
-                }
-                catch { }
+                LogError(ex, "KeyPressed");
             }
         }
 
@@ -162,34 +269,14 @@ namespace TornadoScript.ScriptMain.Script
         {
             try
             {
-                if (isInitialized)
+                if (_isInitialized && !_disposed)
                 {
                     base.OnUpdate(gameTime);
                 }
             }
             catch (Exception ex)
             {
-                Logger.Log("Error in OnUpdate: {0}", ex.Message);
-            }
-        }
-
-        void IDisposable.Dispose()
-        {
-            try
-            {
-                if (_factory != null)
-                {
-                    _factory.RemoveAll();
-                }
-                KeyDown -= KeyPressed;
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("Error during disposal: {0}", ex.Message);
-            }
-            finally
-            {
-                base.Dispose();
+                LogError(ex, "OnUpdate");
             }
         }
     }

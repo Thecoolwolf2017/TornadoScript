@@ -3,7 +3,7 @@ using System.Xml;
 
 namespace TornadoScript.ScriptCore.IO
 {
-    class XMLSimpleParser
+    internal class XMLSimpleParser
     {
         /// <summary>
         /// Lightweight function for grabbing nested xml data in a file.
@@ -30,6 +30,6 @@ namespace TornadoScript.ScriptCore.IO
                     }
                 }
             }
-        }        
+        }
     }
 }

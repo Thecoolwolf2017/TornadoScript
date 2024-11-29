@@ -1,6 +1,75 @@
 # TornadoScript Development Changelog
 
+## Version 1.0.4 (In Development)
+
+### Resource Management Improvements
+- Enhanced model loading and cleanup
+  - Added proper model tracking in TornadoVortex
+  - Improved model cleanup in entity pool
+  - Added error handling for model loading
+  - Implemented try/finally blocks for resource cleanup
+  - Added model validity checks
+  - Improved memory management for game models
+  - Fixed potential memory leaks in model loading
+
+### Core Framework Enhancements
+- Improved error handling
+  - Added detailed error messages for model loading
+  - Enhanced resource cleanup robustness
+  - Better exception handling in entity creation
+- Enhanced entity pool management
+  - Improved entity reuse logic
+  - Better cleanup of pooled entities
+  - More efficient resource utilization
+
 ## Version 1.0.3 (In Development)
+
+### Core System Improvements
+- Enhanced script lifecycle management
+  - Improved initialization in constructor
+  - Robust cleanup in Dispose method
+  - Better error handling and logging
+  - Proper resource management
+  - Safer state transitions
+  - Proper cleanup of key handlers
+  - Removed thread lifecycle hooks
+
+- Improved error logging system
+  - Added centralized ErrorLogger class
+  - Thread-safe logging with lock mechanism
+  - Captures inner exceptions
+  - Optional user notifications
+  - Consistent error format
+  - Improved error context
+
+### Console System Overhaul
+#### Text Management
+- Improved console text visibility and management
+  - Limited visible lines to 8 to prevent overflow
+  - Implemented Queue-based line management system
+  - Added automatic timestamp support for messages
+  - Optimized text element updates for better performance
+  - Fixed text positioning with -240 vertical offset
+  - Removed unused scroll functionality
+  - Adjusted console size to match visible line count
+  - Made help text more concise and readable
+
+#### Console Commands
+- Enhanced command system
+  - Added 'clear' command to console
+  - Updated help command with clearer descriptions
+  - Optimized ListVars command output formatting
+  - Improved command feedback visibility
+
+#### Frontend Architecture
+- Refactored FrontendOutput class
+  - Replaced fixed arrays with dynamic Queue
+  - Added proper line timing management
+  - Improved text element lifecycle handling
+  - Enhanced console visibility controls
+  - Better memory management for text storage
+  - Simplified text update logic
+  - Added proper disposal of unused resources
 
 ### Control System Overhaul
 - Changed key bindings for better user experience
@@ -60,18 +129,22 @@
   - Command execution tracking
   - Performance metrics
 
-### Documentation
-- Updated README.md
-  - New control scheme documentation
-  - Enhanced feature descriptions
-  - Updated setup instructions
-  - Added customization guide
-- Enhanced in-game help system
-  - Updated command descriptions
-  - Added new variable documentation
-  - Improved error messages
+### Code Quality Improvements
+- Enhanced code organization
+  - Better separation of concerns in frontend classes
+  - Improved constant organization and documentation
+  - Cleaner text management implementation
+  - More efficient resource utilization
 
 ### Performance Optimizations
+- Enhanced entity pooling system
+  - Implemented efficient entity reuse
+  - Added 50-entity pool size limit
+  - Optimized entity reuse distance (20 units)
+  - Improved pool cleanup on disposal
+  - Better memory management for entities
+  - Reduced entity creation overhead
+  - Added pool status logging
 - Enhanced tornado physics calculations
   - Improved force application efficiency
   - Better entity tracking
@@ -80,13 +153,23 @@
   - Better memory management
   - Improved visual effects
   - Reduced CPU overhead
+- Implemented frame-independent updates
+  - Added fixed timestep (60Hz) for physics
+  - Separated physics from visual updates
+  - Improved movement smoothness
+  - Reduced CPU usage with optimized updates
+  - Better performance at varying frame rates
+  - Optimized entity collection frequency
 
-### Known Issues
+### Known Issues & Limitations
 - Ongoing performance optimization for multiple tornados
 - Memory usage optimization in progress
 - Particle effect refinements needed
 
-### Future Development
+### Future Development Plans
+- Consider adding configurable line count for console
+- Potential for command history feature
+- Possible addition of color-coded console messages
 - Enhanced multi-vortex interaction system
 - Advanced weather integration
 - Improved debris physics

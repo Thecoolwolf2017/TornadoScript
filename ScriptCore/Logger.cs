@@ -1,32 +1,31 @@
 using System;
-using System.Diagnostics;
-using System.Reflection;
 using System.IO;
+using System.Reflection;
+using System.Text;
 
 namespace TornadoScript.ScriptCore
 {
+    public enum LogLevel
+    {
+        Trace,
+        Debug,
+        Information,
+        Warning,
+        Error,
+        Critical
+    }
+
     /// <summary>
     /// Static logger class that allows direct logging of anything to a text file
     /// </summary>
     public static class Logger
     {
-        private static readonly string DefaultLogPath = "TornadoScript.log";
-        private static string _logPath;
         private static bool _initialized;
-
-        public static string LogPath
-        {
-            get => _logPath ?? DefaultLogPath;
-            set => _logPath = value;
-        }
-
-        public enum LogLevel
-        {
-            Trace,
-            Information,
-            Warning,
-            Error
-        }
+        private static readonly object _lock = new object();
+        private static string _logDirectory;
+        private static string _mainLogPath;
+        private static string _errorLogPath;
+        private static readonly int MaxLogSizeBytes = 5 * 1024 * 1024; // 5MB
 
         static Logger()
         {
@@ -36,23 +35,33 @@ namespace TornadoScript.ScriptCore
         private static void Initialize()
         {
             if (_initialized) return;
-            
+
             try
             {
-                // Ensure directory exists
-                string directory = Path.GetDirectoryName(Path.GetFullPath(LogPath));
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                // Set up log directory - ensure consistent location in GTA V scripts folder
+                string gtaPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Personal), "GTA V");
+                _logDirectory = Path.Combine(gtaPath, "scripts", "TornadoScript");
+                if (!Directory.Exists(_logDirectory))
                 {
-                    Directory.CreateDirectory(directory);
+                    Directory.CreateDirectory(_logDirectory);
                 }
 
-                // Write header to log file
-                string header = $"=== TornadoScript Log Started at {DateTime.Now} ===\n" +
-                              $"Version: {Assembly.GetExecutingAssembly().GetName().Version}\n" +
-                              $"OS: {Environment.OSVersion}\n" +
-                              "=====================================\n";
-                
-                File.AppendAllText(LogPath, header);
+                // Set up log files
+                _mainLogPath = Path.Combine(_logDirectory, "tornado.log");
+                _errorLogPath = Path.Combine(_logDirectory, "error.log");
+
+                // Rotate logs if they're too big
+                RotateLogIfNeeded(_mainLogPath);
+                RotateLogIfNeeded(_errorLogPath);
+
+                // Write header to main log
+                string header =
+                    $"=== TornadoScript Log Started at {DateTime.Now} ===\n" +
+                    $"Version: {Assembly.GetExecutingAssembly().GetName().Version}\n" +
+                    $"OS: {Environment.OSVersion}\n" +
+                    "=====================================\n";
+
+                File.AppendAllText(_mainLogPath, header);
                 _initialized = true;
             }
             catch (Exception ex)
@@ -61,23 +70,64 @@ namespace TornadoScript.ScriptCore
             }
         }
 
-        public static void Log(string format, params object[] args)
+        private static void RotateLogIfNeeded(string logPath)
         {
-            Log(LogLevel.Information, format, args);
+            if (!File.Exists(logPath)) return;
+
+            try
+            {
+                var fileInfo = new FileInfo(logPath);
+                if (fileInfo.Length > MaxLogSizeBytes)
+                {
+                    string backupPath = logPath + ".old";
+                    if (File.Exists(backupPath))
+                    {
+                        File.Delete(backupPath);
+                    }
+                    File.Move(logPath, backupPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to rotate log file: {ex.Message}");
+            }
         }
 
         public static void Log(LogLevel level, string format, params object[] args)
         {
+            if (!_initialized)
+            {
+                Initialize();
+            }
+
             try
             {
-                string message = string.Format(format, args);
+                string message = args.Length > 0 ? string.Format(format, args) : format;
                 string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
                 string logEntry = $"[{timestamp}] [{level}] {message}{Environment.NewLine}";
 
-                File.AppendAllText(LogPath, logEntry);
+                lock (_lock)
+                {
+                    // Write to appropriate log file based on level
+                    string targetPath = (level == LogLevel.Error || level == LogLevel.Critical)
+                        ? _errorLogPath
+                        : _mainLogPath;
 
-                // Also output to debug console for debugging purposes
-                System.Diagnostics.Debug.WriteLine(logEntry);
+                    File.AppendAllText(targetPath, logEntry);
+
+                    // Also output to debug console
+                    System.Diagnostics.Debug.WriteLine(logEntry);
+
+                    // Rotate log if needed
+                    if (level != LogLevel.Error && level != LogLevel.Critical)
+                    {
+                        RotateLogIfNeeded(_mainLogPath);
+                    }
+                    else
+                    {
+                        RotateLogIfNeeded(_errorLogPath);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -85,9 +135,37 @@ namespace TornadoScript.ScriptCore
             }
         }
 
-        public static void Debug(string format, params object[] args) => Log(LogLevel.Trace, format, args);
+        public static void LogException(Exception ex, string context = null)
+        {
+            var sb = new StringBuilder();
+            if (!string.IsNullOrEmpty(context))
+            {
+                sb.AppendLine($"Context: {context}");
+            }
+            sb.AppendLine($"Exception: {ex.GetType().Name}");
+            sb.AppendLine($"Message: {ex.Message}");
+            sb.AppendLine($"Stack Trace: {ex.StackTrace}");
+
+            if (ex.InnerException != null)
+            {
+                sb.AppendLine("Inner Exception:");
+                sb.AppendLine($"Type: {ex.InnerException.GetType().Name}");
+                sb.AppendLine($"Message: {ex.InnerException.Message}");
+                sb.AppendLine($"Stack Trace: {ex.InnerException.StackTrace}");
+            }
+
+            Log(LogLevel.Error, sb.ToString());
+        }
+
+        public static void Log(string format, params object[] args)
+        {
+            Log(LogLevel.Information, format, args);
+        }
+
+        public static void Debug(string format, params object[] args) => Log(LogLevel.Debug, format, args);
         public static void Info(string format, params object[] args) => Log(LogLevel.Information, format, args);
         public static void Warning(string format, params object[] args) => Log(LogLevel.Warning, format, args);
         public static void Error(string format, params object[] args) => Log(LogLevel.Error, format, args);
+        public static void Critical(string format, params object[] args) => Log(LogLevel.Critical, format, args);
     }
 }

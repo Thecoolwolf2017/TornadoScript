@@ -1,11 +1,11 @@
+using GTA;
+using GTA.Math;
+using GTA.Native;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Runtime.CompilerServices;
-using GTA;
-using GTA.Math;
-using GTA.Native;
 
 namespace TornadoScript.ScriptMain.Utility
 {

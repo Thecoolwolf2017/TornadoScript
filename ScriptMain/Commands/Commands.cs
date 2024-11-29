@@ -1,13 +1,7 @@
 using GTA;
 using GTA.Native;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
-using TornadoScript.ScriptMain.Frontend;
 using TornadoScript.ScriptMain.Script;
 
 namespace TornadoScript.ScriptMain.Commands
@@ -16,21 +10,19 @@ namespace TornadoScript.ScriptMain.Commands
     {
         public static string SetVar(params string[] args)
         {
-            if (args.Length < 2) return "SetVar: Invalid format.";
+            if (args.Length < 2) return "Set: Bad format";
 
             var varName = args[0];
-
 
             if (int.TryParse(args[1], out var _i))
             {
                 if (ScriptThread.GetVar<int>(varName) != null)
                 {
                     return !ScriptThread.SetVar(varName, _i)
-                        ? "Failed to set the (integer) variable. Is it readonly?"
+                        ? "Set failed"
                         : null;
                 }
             }
-
 
             if (float.TryParse(args[1], out var f))
             {
@@ -39,7 +31,7 @@ namespace TornadoScript.ScriptMain.Commands
                 if (foundVar != null)
                 {
                     return !ScriptThread.SetVar(varName, f)
-                        ? "Failed to set the (float) variable. Is it readonly?"
+                        ? "Set failed"
                         : null;
                 }
             }
@@ -51,12 +43,12 @@ namespace TornadoScript.ScriptMain.Commands
                 if (foundVar != null)
                 {
                     return !ScriptThread.SetVar(varName, b)
-                        ? "Failed to set the (bool) variable. Is it readonly?"
+                        ? "Set failed"
                         : null;
                 }
             }
 
-            return "Variable '" + args[0] + "' not found.";
+            return $"'{varName}' not found";
         }
 
         public static string ResetVar(params string[] args)
@@ -64,7 +56,7 @@ namespace TornadoScript.ScriptMain.Commands
             if (args.Length < 1) return "ResetVar: Invalid format.";
 
             var varName = args[0];
-            
+
             var intVar = ScriptThread.GetVar<int>(varName);
             if (intVar != null)
             {
@@ -93,11 +85,24 @@ namespace TornadoScript.ScriptMain.Commands
         {
             var vars = ScriptThread.Vars;
             var result = new StringBuilder();
-            result.AppendLine("Available variables:");
+            result.AppendLine("Vars:");
 
+            // Only show first 6 variables to prevent overflow
+            int shown = 0;
             foreach (var var in vars)
             {
-                result.AppendLine($"{var.Key} = {var.Value}");
+                if (shown >= 6) break;
+                // Shorten output by truncating values
+                string value = var.Value.ToString();
+                if (value.Length > 10)
+                    value = value.Substring(0, 7) + "...";
+                result.AppendLine($"{var.Key}={value}");
+                shown++;
+            }
+
+            if (vars.Count > 6)
+            {
+                result.AppendLine("+more");
             }
 
             return result.ToString();
@@ -108,7 +113,7 @@ namespace TornadoScript.ScriptMain.Commands
             var vtxmgr = ScriptThread.Get<TornadoFactory>();
             if (vtxmgr.ActiveVortexCount > 0)
                 vtxmgr.ActiveVortexList[0].Position = Game.Player.Character.Position;
-            return "Vortex summoned";
+            return "Moved";
         }
 
         public static string SpawnVortex(string[] _)
@@ -117,19 +122,22 @@ namespace TornadoScript.ScriptMain.Commands
             Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
             Function.Call(Hash.SET_WIND, 70.0f);
             var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
-            vtxmgr.CreateVortex(position);
-            return "Vortex spawned";
+            var tornado = vtxmgr.CreateVortex(position);
+            if (tornado == null)
+            {
+                return "Failed to spawn tornado";
+            }
+            return "Spawned successfully";
         }
 
         public static string ShowHelp(params string[] _)
         {
-            return "Available commands:\n" +
-                   "spawn - Create a new tornado\n" +
-                   "summon - Move existing tornado to player\n" +
-                   "set <var> <value> - Set variable value\n" +
-                   "reset <var> - Reset variable to default\n" +
-                   "ls/list - List all variables\n" +
-                   "help/? - Show this help";
+            return "sp:new\n" +
+                   "su:move\n" +
+                   "set:val\n" +
+                   "rst:def\n" +
+                   "ls:vars\n" +
+                   "clr:txt";
         }
     }
 }

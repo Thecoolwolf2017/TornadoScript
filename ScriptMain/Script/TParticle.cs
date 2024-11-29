@@ -41,15 +41,15 @@ namespace TornadoScript.ScriptMain.Script
         /// <param name="angle"></param>
         /// <param name="radius"></param>
         /// <param name="layerIdx"></param>
-        public TornadoParticle(TornadoVortex vortex, Vector3 position, Vector3 angle, string fxAsset, string fxName, float radius, int layerIdx, bool isCloud = false) 
+        public TornadoParticle(TornadoVortex vortex, Vector3 position, Vector3 angle, string fxAsset, string fxName, float radius, int layerIdx, bool isCloud = false)
             : base(Setup(position))
         {
             Ref = Setup(position);
-            Parent = vortex;      
+            Parent = vortex;
             _centerPos = position;
             _rotation = MathEx.Euler(angle);
             _ptfx = new LoopedParticle(fxAsset, fxName);
-            _radius = radius;          
+            _radius = radius;
             _offset = new Vector3(0, 0, ScriptThread.GetVar<float>("vortexLayerSeperationScale") * layerIdx);
             LayerIndex = layerIdx;
             IsCloud = isCloud;
@@ -65,7 +65,7 @@ namespace TornadoScript.ScriptMain.Script
             _layerMask = 1.0f - _layerMask;
 
             if (_layerMask <= 0.3f)
-               _layerMask = 0.3f;
+                _layerMask = 0.3f;
         }
 
         /// <summary>
@@ -108,36 +108,36 @@ namespace TornadoScript.ScriptMain.Script
 
         public override void OnUpdate(int gameTime)
         {
-         /*   if (Parent == null)
+            /*   if (Parent == null)
+               {
+                   Dispose();
+               }
+
+               else
+               {*/
+            _centerPos = Parent.Position + _offset;
+
+            if (Math.Abs(_angle) > Math.PI * 2.0f)
             {
-                Dispose();
+                _angle = 0.0f;
             }
 
+            Ref.Position = _centerPos +
+                MathEx.MultiplyVector(new Vector3(_radius * (float)Math.Cos(_angle), _radius * (float)Math.Sin(_angle), 0), _rotation);
+
+            if (IsCloud)
+            {
+                _angle -= ScriptThread.GetVar<float>("vortexRotationSpeed") * 0.16f * Game.LastFrameTime;
+            }
             else
-            {*/
-                _centerPos = Parent.Position + _offset;
-
-                if (Math.Abs(_angle) > Math.PI * 2.0f)
-                {
-                    _angle = 0.0f;
-                }
-
-                Ref.Position = _centerPos + 
-                    MathEx.MultiplyVector(new Vector3(_radius * (float)Math.Cos(_angle), _radius * (float)Math.Sin(_angle), 0), _rotation);
-
-                if (IsCloud)
-                {
-                    _angle -= ScriptThread.GetVar<float>("vortexRotationSpeed") * 0.16f * Game.LastFrameTime;
-                }
-                else
-                {
-                    _angle -= ScriptThread.GetVar<float>("vortexRotationSpeed") * _layerMask * Game.LastFrameTime;
-                }
-
-                //    }
-
-                base.OnUpdate(gameTime);
+            {
+                _angle -= ScriptThread.GetVar<float>("vortexRotationSpeed") * _layerMask * Game.LastFrameTime;
             }
+
+            //    }
+
+            base.OnUpdate(gameTime);
+        }
 
         public void StartFx(float scale)
         {
@@ -154,6 +154,11 @@ namespace TornadoScript.ScriptMain.Script
         public void RemoveFx()
         {
             _ptfx.Remove();
+        }
+
+        public bool IsParticleActive()
+        {
+            return _ptfx != null && _ptfx.Exists;
         }
 
         public override void Dispose()

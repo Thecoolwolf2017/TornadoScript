@@ -1,7 +1,7 @@
-using System;
 using GTA;
 using GTA.Math;
 using GTA.Native;
+using System;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Utility;
 
@@ -136,7 +136,7 @@ namespace TornadoScript.ScriptMain.Script
         public override void OnThreadAttached()
         {
             base.OnThreadAttached();
-            
+
             // Initialize script variables
             ForceMultiplier = 0.6f;
             LiftMultiplier = 0.4f;
@@ -220,7 +220,7 @@ namespace TornadoScript.ScriptMain.Script
                 if (!model.IsLoaded && !model.Request(1000))
                     throw new InvalidOperationException($"Failed to load model: {_modelName}");
 
-                var prop = World.CreateProp(model, position, false, false) 
+                var prop = World.CreateProp(model, position, false, false)
                     ?? throw new InvalidOperationException($"Failed to create prop with model: {_modelName}");
 
                 ConfigureProp(prop);
@@ -354,7 +354,7 @@ namespace TornadoScript.ScriptMain.Script
 
             _currentAngle += _rotationSpeed * deltaTime;
             var centerPos = Parent.Position + _heightOffset;
-            
+
             // Calculate forces
             var toCenter = centerPos - _prop.Position;
             var distance = toCenter.Length();
@@ -366,7 +366,7 @@ namespace TornadoScript.ScriptMain.Script
             // Apply circular motion with configurable force
             var tangent = Vector3.Cross(toCenter.Normalized, Vector3.WorldUp);
             _prop.ApplyForce(tangent * force * ForceMultiplier);
-            
+
             // Apply lift with configurable multiplier
             var lift = new Vector3(0, 0, force * LiftMultiplier);
             _prop.ApplyForce(lift);
@@ -379,7 +379,7 @@ namespace TornadoScript.ScriptMain.Script
         {
             if (_isDestroyed) return;
             _isDestroyed = true;
-            
+
             if (IsValid)
             {
                 var destroyData = new SpawnEventData

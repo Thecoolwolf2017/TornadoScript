@@ -30,7 +30,7 @@ namespace TornadoScript.ScriptCore.Game
         public ScriptVar(T value, bool isReadonly)
         {
             Value = value;
-            Default = value;   
+            Default = value;
             ReadOnly = isReadonly;
         }
 

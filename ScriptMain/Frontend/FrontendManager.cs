@@ -1,7 +1,11 @@
 using GTA;
 using GTA.Math;
+using GTA.Native;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
-using TornadoScript.ScriptMain.Utility;
 
 namespace TornadoScript.ScriptMain.Frontend
 {
@@ -10,24 +14,29 @@ namespace TornadoScript.ScriptMain.Frontend
         private readonly FrontendInput _input;
         private readonly FrontendOutput _output;
         private bool _showingConsole;
-        private bool _capsLock;
+        private HashSet<string> _outputLines;
 
-        // Define our own key codes to remove Windows.Forms dependency
-        private enum KeyCode
+        // Custom key codes enum
+        public enum KeyCode
         {
+            None = 0,
             Back = 8,
             Tab = 9,
             Enter = 13,
-            Shift = 16,
-            Control = 17,
-            Alt = 18,
+            Pause = 19,
             CapsLock = 20,
             Escape = 27,
             Space = 32,
+            PageUp = 33,
+            PageDown = 34,
+            End = 35,
+            Home = 36,
             Left = 37,
             Up = 38,
             Right = 39,
             Down = 40,
+            Insert = 45,
+            Delete = 46,
             D0 = 48,
             D1 = 49,
             D2 = 50,
@@ -74,6 +83,18 @@ namespace TornadoScript.ScriptMain.Frontend
             NumPad7 = 103,
             NumPad8 = 104,
             NumPad9 = 105,
+            F1 = 112,
+            F2 = 113,
+            F3 = 114,
+            F4 = 115,
+            F5 = 116,
+            F6 = 117,
+            F7 = 118,
+            F8 = 119,
+            F9 = 120,
+            F10 = 121,
+            F11 = 122,
+            F12 = 123,
             OemMinus = 189,
             OemPlus = 187,
             OemOpenBrackets = 219,
@@ -88,14 +109,14 @@ namespace TornadoScript.ScriptMain.Frontend
         }
 
         // Custom key event args
-        private class KeyEventArgs
+        public class KeyEventArgs
         {
-            public KeyCode KeyCode { get; }
-            public bool Shift { get; }
-            public bool Control { get; }
-            public bool Alt { get; }
+            public KeyCode KeyCode { get; set; }
+            public bool Shift { get; set; }
+            public bool Control { get; set; }
+            public bool Alt { get; set; }
 
-            public KeyEventArgs(KeyCode keyCode, bool shift, bool control, bool alt)
+            public KeyEventArgs(KeyCode keyCode, bool shift = false, bool control = false, bool alt = false)
             {
                 KeyCode = keyCode;
                 Shift = shift;
@@ -119,6 +140,7 @@ namespace TornadoScript.ScriptMain.Frontend
             Name = "Frontend";
             _input = new FrontendInput();
             _output = new FrontendOutput();
+            _outputLines = new HashSet<string>();
             RegisterEvent("keydown");
             RegisterEvent("textadded");
         }
@@ -141,225 +163,260 @@ namespace TornadoScript.ScriptMain.Frontend
 
         public override void OnUpdate(int gameTime)
         {
-            _input.Update(gameTime);
-            _output.Update(gameTime);
-
             if (_showingConsole)
             {
-                if (Game.IsControlPressed(Control.FrontendUp))
+                // Disable ALL game controls and actions
+                Function.Call(Hash.DISABLE_ALL_CONTROL_ACTIONS, 0);
+                Function.Call(Hash.DISABLE_ALL_CONTROL_ACTIONS, 1);
+                Function.Call(Hash.DISABLE_ALL_CONTROL_ACTIONS, 2);
+
+                // Comprehensive phone control disabling
+                Game.DisableControlThisFrame(Control.Phone);
+                Game.DisableControlThisFrame(Control.PhoneCancel);
+                Game.DisableControlThisFrame(Control.PhoneUp);
+                Game.DisableControlThisFrame(Control.PhoneDown);
+                Game.DisableControlThisFrame(Control.PhoneLeft);
+                Game.DisableControlThisFrame(Control.PhoneRight);
+                Game.DisableControlThisFrame(Control.PhoneSelect);
+
+                // Attempt to forcibly close any open phone
+                // Removed problematic hash call
+
+                // Disable frontend controls
+                Game.DisableControlThisFrame(Control.SelectWeapon);
+                Game.DisableControlThisFrame(Control.RadioWheelLeftRight);
+                Game.DisableControlThisFrame(Control.RadioWheelUpDown);
+                Game.DisableControlThisFrame(Control.VehicleRadioWheel);
+                Game.DisableControlThisFrame(Control.FrontendPause);
+                Game.DisableControlThisFrame(Control.FrontendPauseAlternate);
+                Game.DisableControlThisFrame(Control.WeaponWheelLeftRight);
+                Game.DisableControlThisFrame(Control.WeaponWheelUpDown);
+                Game.DisableControlThisFrame(Control.CharacterWheel);
+
+                // Update input and output
+                _input?.Update(gameTime);
+                _output?.Update(gameTime);
+            }
+        }
+
+        public void OnKeyDown(KeyEventArgs e)
+        {
+            if (!_showingConsole) return;
+
+            Logger.Debug($"Processing console key: {e.KeyCode}");
+
+            // Handle special keys
+            switch (e.KeyCode)
+            {
+                case KeyCode.Enter:
+                    string command = _input.GetCurrentInput();
+                    if (!string.IsNullOrWhiteSpace(command))
+                    {
+                        Logger.Info($"Console command entered: {command}");
+                        _output.WriteLine("> " + command, false, true);  // Echo command with isCommandEcho=true
+                        ProcessCommand(command);  // Process the command
+                        _input.ClearInput();
+                    }
+                    break;
+
+                case KeyCode.Back:
+                    _input.Backspace();
+                    break;
+
+                case KeyCode.Escape:
+                    Logger.Info("Console closed via Escape key");
+                    HideConsole();
+                    break;
+
+                default:
+                    // Handle regular character input
+                    char? c = GetCharFromKey(e.KeyCode, e.Shift);
+                    if (c.HasValue)
+                    {
+                        _input.AddChar(c.Value);
+                        Logger.Debug($"Console key pressed: {e.KeyCode} (char: {c.Value})");
+                    }
+                    break;
+            }
+        }
+
+        private void ProcessCommand(string command)
+        {
+            Logger.Debug($"Processing command: {command}");
+
+            // Split command and arguments
+            var parts = command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return;
+
+            var cmd = parts[0].ToLower();
+            var args = parts.Skip(1).ToArray();
+
+            try
+            {
+                string result = null;
+
+                // Map commands to Commands class methods
+                switch (cmd)
                 {
-                    _output.ScrollUp();
+                    case "set":
+                        result = TornadoScript.ScriptMain.Commands.Commands.SetVar(args);
+                        break;
+                    case "reset":
+                        result = TornadoScript.ScriptMain.Commands.Commands.ResetVar(args);
+                        break;
+                    case "ls":
+                    case "list":
+                        result = TornadoScript.ScriptMain.Commands.Commands.ListVars(args);
+                        break;
+                    case "spawn":
+                        result = TornadoScript.ScriptMain.Commands.Commands.SpawnVortex(args);
+                        break;
+                    case "summon":
+                        result = TornadoScript.ScriptMain.Commands.Commands.SummonVortex(args);
+                        break;
+                    case "help":
+                    case "?":
+                        result = TornadoScript.ScriptMain.Commands.Commands.ShowHelp(args);
+                        break;
+                    case "clear":
+                        _output.Clear();
+                        _output.WriteLine("Console cleared.", false, false);
+                        break;
+                    case "exit":
+                        HideConsole();
+                        break;
+                    default:
+                        _output.WriteLine($"Unknown command: {cmd}", false, false);
+                        _output.WriteLine("Type 'help' for available commands.", false, false);
+                        break;
                 }
-                else if (Game.IsControlPressed(Control.FrontendDown))
+
+                // Output command result if any
+                if (result != null)
                 {
-                    _output.ScrollDown();
+                    // Split multi-line results and output each line
+                    var resultLines = result.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in resultLines)
+                    {
+                        var trimmedLine = line.Trim();
+                        if (!_outputLines.Contains(trimmedLine))
+                        {
+                            _output.WriteLine(trimmedLine, false, false);
+                            _outputLines.Add(trimmedLine);
+                        }
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error executing command '{command}': {ex.Message}");
+                var errorMessage = $"Error: {ex.Message}";
+                if (!_outputLines.Contains(errorMessage))
+                {
+                    _output.WriteLine(errorMessage, false, false);
+                    _outputLines.Add(errorMessage);
+                }
+            }
+        }
 
-            base.OnUpdate(gameTime);
+        private char? GetCharFromKey(KeyCode key, bool shift)
+        {
+            // Handle letters
+            if (key >= KeyCode.A && key <= KeyCode.Z)
+            {
+                char c = (char)('a' + (key - KeyCode.A));
+                return shift ? char.ToUpper(c) : c;
+            }
+
+            // Handle numbers
+            if (key >= KeyCode.D0 && key <= KeyCode.D9 && !shift)
+            {
+                return (char)('0' + (key - KeyCode.D0));
+            }
+
+            // Handle special characters
+            switch (key)
+            {
+                case KeyCode.Space: return ' ';
+                case KeyCode.OemMinus: return shift ? '_' : '-';
+                case KeyCode.OemPlus: return shift ? '+' : '=';
+                case KeyCode.OemPeriod: return shift ? '>' : '.';
+                case KeyCode.OemComma: return shift ? '<' : ',';
+                case KeyCode.OemQuestion: return shift ? '?' : '/';
+                case KeyCode.OemSemicolon: return shift ? ':' : ';';
+                case KeyCode.OemQuotes: return shift ? '"' : '\'';
+                case KeyCode.OemOpenBrackets: return shift ? '{' : '[';
+                case KeyCode.OemCloseBrackets: return shift ? '}' : ']';
+                case KeyCode.OemPipe: return shift ? '|' : '\\';
+                case KeyCode.OemTilde: return shift ? '~' : '`';
+                default: return null;
+            }
+        }
+
+        public void HandleKeyPress(System.Windows.Forms.KeyEventArgs e)
+        {
+            var keyArgs = new KeyEventArgs(
+                (KeyCode)e.KeyCode,
+                e.Shift,
+                e.Control,
+                e.Alt
+            );
+            OnKeyDown(keyArgs);
         }
 
         protected override void OnKeyDown(object sender, ScriptEventArgs args)
         {
-            var keyArgs = args.Data as KeyEventArgs;
-            if (keyArgs == null) return;
+            base.OnKeyDown(sender, args);
 
-            if (!GetVar<bool>("enableconsole")) return;
-
-            if (keyArgs.KeyCode == KeyCode.CapsLock)
+            // Extract KeyEventArgs from ScriptEventArgs.Data
+            if (args.Data is KeyEventArgs keyArgs)
             {
-                _capsLock = !_capsLock;
-                return;
-            }
-
-            if (!_showingConsole)
-            {
-                if (keyArgs.KeyCode == (KeyCode)GetVar<int>("toggleconsole"))
-                {
-                    ShowConsole();
-                }
-            }
-            else
-            {
-                GetConsoleInput(keyArgs);
-            }
-        }
-
-        private void GetConsoleInput(KeyEventArgs e)
-        {
-            switch (e.KeyCode)
-            {
-                case KeyCode.Back:
-                    {
-                        var text = _input.GetText();
-                        if (text.Length < 1)
-                        {
-                            HideConsole();
-                        }
-                        _input.RemoveLastChar();
-                        return;
-                    }
-
-                case KeyCode.Up:
-                    _output.ScrollUp();
-                    return;
-
-                case KeyCode.Down:
-                    _output.ScrollDown();
-                    return;
-
-                case KeyCode.Space:
-                    _input.AddChar(' ');
-                    return;
-
-                case KeyCode.Enter:
-                    {
-                        var text = _input.GetText();
-                        if (!string.IsNullOrWhiteSpace(text))
-                        {
-                            NotifyEvent("textadded", new ScriptEventArgs(text));
-                            _output.WriteLine(text);
-                            _input.Clear();
-                            _output.ScrollToTop();
-                        }
-                        return;
-                    }
-
-                case KeyCode.Escape:
-                    HideConsole();
-                    return;
-            }
-
-            // Handle letters
-            if (e.KeyCode >= KeyCode.A && e.KeyCode <= KeyCode.Z)
-            {
-                var keyChar = (char)e.KeyCode;
-                
-                if (_capsLock || e.Shift)
-                    keyChar = char.ToUpper(keyChar);
-                else
-                    keyChar = char.ToLower(keyChar);
-
-                _input.AddChar(keyChar);
-                return;
-            }
-
-            // Handle numbers
-            if ((e.KeyCode >= KeyCode.D0 && e.KeyCode <= KeyCode.D9) || 
-                (e.KeyCode >= KeyCode.NumPad0 && e.KeyCode <= KeyCode.NumPad9))
-            {
-                var isNumPad = e.KeyCode >= KeyCode.NumPad0;
-                var num = isNumPad ? (e.KeyCode - KeyCode.NumPad0) : (e.KeyCode - KeyCode.D0);
-                
-                if (e.Shift && !isNumPad)
-                    _input.AddChar(NumberChars[num]);
-                else
-                    _input.AddChar((char)('0' + num));
-                return;
-            }
-
-            // Handle special characters
-            switch (e.KeyCode)
-            {
-                case KeyCode.OemMinus when e.Shift:
-                    _input.AddChar('_');
-                    break;
-                case KeyCode.OemMinus:
-                    _input.AddChar('-');
-                    break;
-                case KeyCode.OemPlus when e.Shift:
-                    _input.AddChar('+');
-                    break;
-                case KeyCode.OemPlus:
-                    _input.AddChar('=');
-                    break;
-                case KeyCode.OemOpenBrackets when e.Shift:
-                    _input.AddChar('{');
-                    break;
-                case KeyCode.OemOpenBrackets:
-                    _input.AddChar('[');
-                    break;
-                case KeyCode.OemCloseBrackets when e.Shift:
-                    _input.AddChar('}');
-                    break;
-                case KeyCode.OemCloseBrackets:
-                    _input.AddChar(']');
-                    break;
-                case KeyCode.OemPipe when e.Shift:
-                    _input.AddChar('|');
-                    break;
-                case KeyCode.OemPipe:
-                    _input.AddChar('\\');
-                    break;
-                case KeyCode.OemSemicolon when e.Shift:
-                    _input.AddChar(':');
-                    break;
-                case KeyCode.OemSemicolon:
-                    _input.AddChar(';');
-                    break;
-                case KeyCode.OemQuotes when e.Shift:
-                    _input.AddChar('"');
-                    break;
-                case KeyCode.OemQuotes:
-                    _input.AddChar('\'');
-                    break;
-                case KeyCode.OemComma when e.Shift:
-                    _input.AddChar('<');
-                    break;
-                case KeyCode.OemComma:
-                    _input.AddChar(',');
-                    break;
-                case KeyCode.OemPeriod when e.Shift:
-                    _input.AddChar('>');
-                    break;
-                case KeyCode.OemPeriod:
-                    _input.AddChar('.');
-                    break;
-                case KeyCode.OemQuestion when e.Shift:
-                    _input.AddChar('?');
-                    break;
-                case KeyCode.OemQuestion:
-                    _input.AddChar('/');
-                    break;
-                case KeyCode.OemTilde when e.Shift:
-                    _input.AddChar('~');
-                    break;
-                case KeyCode.OemTilde:
-                    _input.AddChar('`');
-                    break;
+                OnKeyDown(keyArgs);
             }
         }
 
         public void ShowConsole()
         {
             if (_showingConsole) return;
-            _input.Show();
-            _output.Show();
+
             _showingConsole = true;
+            _input.Enable();
+            // Commented out undefined hash call
+            // Function.Call(Hash.SET_MOBILE_PHONE_DISABLED, true);
         }
 
         public void HideConsole()
         {
             if (!_showingConsole) return;
-            _input.Clear();
-            _input.Hide();
-            _output.Hide();
-            _output.EnableFadeOut();
+
             _showingConsole = false;
+            _input.Disable();
+            // Commented out undefined hash call
+            // Function.Call(Hash.SET_MOBILE_PHONE_DISABLED, false);
         }
 
         public void WriteLine(string format, params object[] args)
         {
             if (args == null || args.Length == 0)
-                _output.WriteLine(format);
+                _output.WriteLine(format, false, false);
             else
-                _output.WriteLine(string.Format(format, args));
+                _output.WriteLine(string.Format(format, args), false, false);
         }
 
         public void Clear()
         {
             _output.Clear();
         }
+
+        public void ResetOutputLines()
+        {
+            if (_outputLines != null)
+            {
+                _outputLines.Clear();
+            }
+        }
+
+        public bool IsConsoleShowing => _showingConsole;
 
         public override void Dispose()
         {

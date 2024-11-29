@@ -40,7 +40,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>8.0</LangVersion>
     <Optimize>false</Optimize>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
@@ -52,7 +52,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>8.0</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
@@ -100,6 +100,8 @@
     <Compile Include="ScriptCore\Game\ScriptThread.cs" />
     <Compile Include="ScriptCore\Game\ScriptVar.cs" />
     <Compile Include="ScriptCore\Game\ScriptVarCollection.cs" />
+    <Compile Include="ScriptCore\ILogger.cs" />
+    <Compile Include="ScriptCore\Collections\ObjectPool.cs" />
     <Compile Include="ScriptCore\IO\EncryptedFileStream.cs" />
     <Compile Include="ScriptCore\IO\IXMLSimpleMetadata.cs" />
     <Compile Include="ScriptCore\IO\XMLAttributesCollection.cs" />
@@ -113,6 +115,7 @@
     <Compile Include="ScriptMain\Frontend\FrontendManager.cs" />
     <Compile Include="ScriptMain\Frontend\FrontendOutput.cs" />
     <Compile Include="ScriptMain\Script\MainScript.cs" />
+    <Compile Include="ScriptMain\Script\PulledEntity.cs" />
     <Compile Include="ScriptMain\Script\TDebris.cs" />
     <Compile Include="ScriptMain\Utility\Audio\WavePlayer.cs" />
     <Compile Include="ScriptMain\Utility\Audio\SoundManager.cs" />

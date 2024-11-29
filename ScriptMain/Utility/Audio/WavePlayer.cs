@@ -1,3 +1,5 @@
+using GTA;
+using GTA.Math;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using TornadoScript.ScriptCore.Game;
@@ -20,6 +22,10 @@ namespace TornadoScript.ScriptMain.Utility
 
         private WaveOutEvent _waveOut;
 
+        private Vector3 _position;
+        private float _maxDistance = 100.0f;
+        private float _minDistance = 5.0f;
+
         public WavePlayer(string audioFilename)
         {
             _waveStream = new LoopStream(new WaveFileReader(audioFilename));
@@ -37,7 +43,7 @@ namespace TornadoScript.ScriptMain.Utility
 
         public void SetVolume(float volumeLevel)
         {
-         //   GTA.UI.ShowSubtitle(_waveOut.Volume.ToString());
+            //   GTA.UI.ShowSubtitle(_waveOut.Volume.ToString());
             if (soundFadingIn || soundFadingOut)
                 return;
             _waveChannel.Volume = volumeLevel;
@@ -68,7 +74,6 @@ namespace TornadoScript.ScriptMain.Utility
             _waveOut.Play();
         }
 
-
         public void DoFadeOut(int fadeTime, float fadeTarget)
         {
             this.fadeTime = fadeTime;
@@ -93,7 +98,7 @@ namespace TornadoScript.ScriptMain.Utility
         {
             if (fromStart)
                 _waveStream.CurrentTime = System.TimeSpan.Zero;
-                    
+
             _waveOut.Play();
         }
 
@@ -132,6 +137,48 @@ namespace TornadoScript.ScriptMain.Utility
                     soundFadingOut = false;
                 }
             }
+
+            // Update 3D positioning
+            UpdateVolume();
+        }
+
+        public void SetPosition(Vector3 position)
+        {
+            _position = position;
+            UpdateVolume();
+        }
+
+        public void SetDistanceParameters(float minDistance, float maxDistance)
+        {
+            _minDistance = minDistance;
+            _maxDistance = maxDistance;
+            UpdateVolume();
+        }
+
+        private void UpdateVolume()
+        {
+            if (!IsPlaying()) return;
+
+            var playerPos = Game.Player.Character.Position;
+            var distance = Vector3.Distance(playerPos, _position);
+
+            // Calculate volume based on distance
+            float volume = 1.0f;
+            if (distance > _minDistance)
+            {
+                volume = System.Math.Max(0.0f, 1.0f - ((distance - _minDistance) / (_maxDistance - _minDistance)));
+            }
+
+            // Apply volume with smooth interpolation
+            float currentVolume = _waveChannel.Volume;
+            float targetVolume = volume;
+            float smoothing = 0.1f;
+            _waveChannel.Volume = currentVolume + (targetVolume - currentVolume) * smoothing;
+        }
+
+        public void OnUpdate(int gameTime)
+        {
+            Update();
         }
     }
 }
