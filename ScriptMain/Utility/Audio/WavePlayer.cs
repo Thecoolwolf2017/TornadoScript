@@ -2,11 +2,13 @@ using GTA;
 using GTA.Math;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using System;
+using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 
 namespace TornadoScript.ScriptMain.Utility
 {
-    public class WavePlayer
+    public class WavePlayer : IDisposable
     {
         private float currentVolume = 0.0f;
 
@@ -25,6 +27,9 @@ namespace TornadoScript.ScriptMain.Utility
         private Vector3 _position;
         private float _maxDistance = 100.0f;
         private float _minDistance = 5.0f;
+
+        private bool _disposed;
+        private readonly object _disposeLock = new object();
 
         public WavePlayer(string audioFilename)
         {
@@ -179,6 +184,43 @@ namespace TornadoScript.ScriptMain.Utility
         public void OnUpdate(int gameTime)
         {
             Update();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            lock (_disposeLock)
+            {
+                if (_disposed) return;
+
+                if (disposing)
+                {
+                    try
+                    {
+                        _waveOut?.Stop();
+                        _waveOut?.Dispose();
+                        _waveStream?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Error disposing WavePlayer: {ex.Message}");
+                    }
+                }
+
+                _disposed = true;
+            }
+        }
+
+        ~WavePlayer()
+        {
+            Dispose(false);
         }
     }
 }

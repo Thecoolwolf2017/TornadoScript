@@ -1,6 +1,8 @@
+using System;
 using GTA;
 using GTA.Native;
 using System.Text;
+using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Script;
 
@@ -116,28 +118,60 @@ namespace TornadoScript.ScriptMain.Commands
             return "Moved";
         }
 
-        public static string SpawnVortex(string[] _)
+        public static string SpawnVortex(params string[] _)
         {
-            var vtxmgr = ScriptThread.Get<TornadoFactory>();
-            Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
-            Function.Call(Hash.SET_WIND, 70.0f);
-            var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
-            var tornado = vtxmgr.CreateVortex(position);
-            if (tornado == null)
+            try
             {
-                return "Failed to spawn tornado";
+                var vtxmgr = ScriptThread.Get<TornadoFactory>();
+                if (vtxmgr == null)
+                {
+                    Logger.Error("Failed to get TornadoFactory");
+                    return "Failed to get TornadoFactory";
+                }
+
+                Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, 0f, 0f, 0f, 1000000.0f);
+                Function.Call(Hash.SET_WIND, 70.0f);
+
+                var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
+                var tornado = vtxmgr.CreateVortex(position);
+                
+                if (tornado == null)
+                {
+                    Logger.Error("Failed to create tornado instance");
+                    return "Failed to spawn tornado";
+                }
+
+                // Add to ScriptThread before building
+                ScriptThread.Add(tornado);
+
+                if (!tornado.Build())
+                {
+                    Logger.Error("Failed to build tornado visuals");
+                    ScriptThread.Remove(tornado);
+                    return "Failed to build tornado visuals";
+                }
+
+                Logger.Log("Tornado spawned and built successfully");
+                return "Spawned successfully";
             }
-            return "Spawned successfully";
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in SpawnVortex: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+                return $"Error spawning tornado: {ex.Message}";
+            }
         }
 
         public static string ShowHelp(params string[] _)
         {
-            return "sp:new\n" +
-                   "su:move\n" +
-                   "set:val\n" +
-                   "rst:def\n" +
-                   "ls:vars\n" +
-                   "clr:txt";
+            return "Available Commands:\n" +
+                   "spawn - Create a tornado at your position\n" +
+                   "summon - Move existing tornado to your position\n" +
+                   "set [var] [value] - Set a variable value\n" +
+                   "reset [var] - Reset variable to default\n" +
+                   "list/ls - Show all variables\n" +
+                   "clear - Clear console output\n" +
+                   "exit - Close console (or press F8/ESC)";
         }
     }
 }

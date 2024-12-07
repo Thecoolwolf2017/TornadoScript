@@ -1,270 +1,45 @@
 using GTA;
 using GTA.Native;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
+using TornadoScript.ScriptCore;
 
 namespace TornadoScript.ScriptMain.Memory
 {
     /// <summary>
     /// Provides safe access to game memory and handles native function calls.
     /// </summary>
-    public static unsafe class MemoryAccess
+    public static class MemoryAccess
     {
-        #region Native Function Delegates
-
-        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
-        private delegate IntPtr FwGetAssetIndexFn(IntPtr assetStore, out int index, StringBuilder name);
-
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        internal delegate int AddEntityToPoolFn(ulong address);
-
-        private delegate IntPtr GetPooledPtfxAddressFn(int handle);
-
-        #endregion
-
-        #region Memory Addresses
-
-        private static IntPtr _ptfxAssetStorePtr;
         private static IntPtr _scriptEntityPoolAddr;
-        private static IntPtr _vehiclePoolAddr;
-        private static IntPtr _pedPoolAddr;
-        private static IntPtr _objectPoolAddr;
+        private static bool _isInitialized;
 
-        #endregion
-
-        #region Function Pointers
-
-        private static FwGetAssetIndexFn _fwGetAssetIndex;
-        internal static AddEntityToPoolFn AddEntityToPool { get; private set; }
-
-
-        #endregion
-
-        #region Constants
-
-        private static readonly uint PtfxColourHash = StringHash.AtStringHash("ptxu_Colour", 0);
-        private const int MaxPoolSize = 1024;
-
-        #endregion
-
-        #region State
-
-        private static bool _initialized;
-        private static readonly Dictionary<string, IntPtr> _ptfxRulePtrList = new Dictionary<string, IntPtr>();
-        private static readonly object _lock = new object();
-
-        #endregion
-
-        /// <summary>
-        /// Initializes the memory access system. Must be called before using any other functionality.
-        /// </summary>
-        public static void Initialize()
+        static MemoryAccess()
         {
-            if (_initialized) return;
-
-            lock (_lock)
-            {
-                if (_initialized) return;
-
-                try
-                {
-                    InitializePtfxAssetStore();
-                    InitializeEntityPools();
-                    _initialized = true;
-                }
-                catch (Exception ex)
-                {
-                    GTA.UI.Notification.PostTicker($"MemoryAccess initialization failed: {ex.Message}", false, false);
-                    throw;
-                }
-            }
-        }
-
-        private static void InitializePtfxAssetStore()
-        {
-            var pattern = new Pattern("\\x0F\\xBF\\x04\\x9F\\xB9", "xxxxx");
-            var result = pattern.Get(0x19);
-
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64() + 7;
-                var value = Marshal.ReadInt32(IntPtr.Add(result, 3));
-                _ptfxAssetStorePtr = new IntPtr(rip + value);
-            }
-            else
-            {
-                throw new InvalidOperationException("Failed to find PTFX asset store pattern");
-            }
-
-            pattern = new Pattern("\\x41\\x8B\\xDE\\x4C\\x63\\x00", "xxxxx?");
-            result = pattern.Get();
-
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                _fwGetAssetIndex = Marshal.GetDelegateForFunctionPointer<FwGetAssetIndexFn>(new IntPtr(rip + value));
-            }
-            else
-            {
-                throw new InvalidOperationException("Failed to find FwGetAssetIndex pattern");
-            }
-        }
-
-        private static void InitializeEntityPools()
-        {
-            // Entity Pool
-            InitializePool("\\x4C\\x8B\\x0D\\x00\\x00\\x00\\x00\\x44\\x8B\\xC1\\x49\\x8B\\x41\\x08",
-                "xxx????xxxxxxx", 7, addr => _scriptEntityPoolAddr = addr);
-
-            // Vehicle Pool
-            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\xF3\\x0F\\x59\\xF6\\x48\\x8B\\x08",
-                "xxx????xxxxxxx", 7, addr => _vehiclePoolAddr = addr);
-
-            // Ped Pool
-            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\x41\\x0F\\xBF\\xC8\\x0F\\xBF\\x40\\x10",
-                "xxx????xxxxxxxx", 7, addr => _pedPoolAddr = addr);
-
-            // Object Pool
-            InitializePool("\\x48\\x8B\\x05\\x00\\x00\\x00\\x00\\x8B\\x78\\x10\\x85\\xFF",
-                "xxx????xxxxx", 7, addr => _objectPoolAddr = addr);
-
-            // AddEntityToPool
-            var pattern = new Pattern("\\x48\\xF7\\xF9\\x49\\x8B\\x48\\x08\\x48\\x63\\xD0\\xC1\\xE0\\x08\\x0F\\xB6\\x1C\\x11\\x03\\xD8",
-                "xxxxxxxxxxxxxxxxxxx");
-            var result = pattern.Get();
-
-            if (result != IntPtr.Zero)
-            {
-                AddEntityToPool = Marshal.GetDelegateForFunctionPointer<AddEntityToPoolFn>(IntPtr.Subtract(result, 0x68));
-            }
-            else
-            {
-                throw new InvalidOperationException("Failed to find AddEntityToPool pattern");
-            }
-        }
-
-        private static void InitializePool(string pattern, string mask, int offset, Action<IntPtr> setter)
-        {
-            var pat = new Pattern(pattern, mask);
-            var result = pat.Get(offset);
-
-            if (result != IntPtr.Zero)
-            {
-                var rip = result.ToInt64();
-                var value = Marshal.ReadInt32(result - 4);
-                setter(Marshal.ReadIntPtr(new IntPtr(rip + value)));
-            }
-            else
-            {
-                throw new InvalidOperationException($"Failed to find pattern: {pattern}");
-            }
-        }
-
-        /// <summary>
-        /// Gets all entities currently in the game world.
-        /// </summary>
-        public static IEnumerable<Entity> GetAllEntities()
-        {
-            if (!_initialized)
-            {
-                throw new InvalidOperationException("MemoryAccess not initialized");
-            }
-
-            var poolItems = Marshal.ReadIntPtr(_scriptEntityPoolAddr);
-            var bitMap = Marshal.ReadIntPtr(_scriptEntityPoolAddr + 0x8);
-            var count = Marshal.ReadInt32(_scriptEntityPoolAddr + 0x10);
-
-            count = Math.Min(count, MaxPoolSize); // Safety limit
-
-            var entities = new List<Entity>();
-            for (int i = 0; i < count; i++)
-            {
-                var bitset = Marshal.ReadByte(bitMap + i);
-                if ((bitset & 0x80) != 0) continue;
-
-                var handle = (i << 8) + bitset;
-                var type = Function.Call<int>(Hash.GET_ENTITY_TYPE, handle);
-
-                Entity entity;
-                switch (type)
-                {
-                    case 1:
-                        entity = World.GetAllPeds().FirstOrDefault(p => p.Handle == handle);
-                        break;
-                    case 2:
-                        entity = World.GetAllVehicles().FirstOrDefault(v => v.Handle == handle);
-                        break;
-                    case 3:
-                        entity = World.GetAllProps().FirstOrDefault(p => p.Handle == handle);
-                        break;
-                    default:
-                        entity = null;
-                        break;
-                }
-
-                if (entity != null)
-                {
-                    entities.Add(entity);
-                }
-            }
-            return entities;
-        }
-
-        /// <summary>
-        /// Safely reads a value from memory.
-        /// </summary>
-        public static T ReadMemory<T>(IntPtr address, int offset = 0) where T : unmanaged
-        {
-            if (address == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(address));
-            }
-
             try
             {
-                return Marshal.PtrToStructure<T>(IntPtr.Add(address, offset));
+                InitializeEntityPools();
+                _isInitialized = true;
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"Failed to read memory at {address + offset:X}", ex);
+                Logger.Error($"MemoryAccess initialization failed: {ex.Message}");
+                _isInitialized = false;
             }
         }
 
-        /// <summary>
-        /// Safely writes a value to memory.
-        /// </summary>
-        public static void WriteMemory<T>(IntPtr address, T value, int offset = 0) where T : unmanaged
+        public static bool IsEntityPoolAvailable()
         {
-            if (address == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(address));
-            }
-
-            try
-            {
-                Marshal.StructureToPtr(value, IntPtr.Add(address, offset), false);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Failed to write memory at {address + offset:X}", ex);
-            }
+            return _isInitialized && _scriptEntityPoolAddr != IntPtr.Zero;
         }
 
-        /// <summary>
-        /// Checks if an address is valid for reading/writing.
-        /// </summary>
-        public static bool IsAddressValid(IntPtr address)
+        private static bool IsAddressValid(IntPtr address)
         {
             if (address == IntPtr.Zero) return false;
-
             try
             {
-                Marshal.ReadByte(address);
-                return true;
+                return address.ToInt64() > 0 && address.ToInt64() < long.MaxValue;
             }
             catch
             {
@@ -272,21 +47,135 @@ namespace TornadoScript.ScriptMain.Memory
             }
         }
 
-        #region IDisposable Pattern for Cleanup
-
-        private static class Cleanup
+        private static void InitializeEntityPools()
         {
-            public static void Release()
+            try
             {
-                _ptfxRulePtrList.Clear();
-                _initialized = false;
+                Logger.Log("Starting entity pool initialization...");
 
-                // Release any other resources
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                // Simplified pattern for latest GTA V
+                var pattern = new Pattern("4C8B0D????????488B05????????4C8BC0", "xxxx????xxxx????xxxx");
+                var result = pattern.Get(3);
+
+                if (result != IntPtr.Zero && IsAddressValid(result))
+                {
+                    _scriptEntityPoolAddr = result;
+                    Logger.Log($"Found entity pool at {result.ToInt64():X}");
+                }
+                else
+                {
+                    Logger.Log("Using fallback mode - no entity pool");
+                    _scriptEntityPoolAddr = IntPtr.Zero;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Memory init failed: {ex.Message} - using fallback");
+                _scriptEntityPoolAddr = IntPtr.Zero;
             }
         }
 
-        #endregion
+        public static bool GetEntityFromPool(int handle, out Entity entity)
+        {
+            entity = null;
+            try
+            {
+                if (!IsEntityPoolAvailable() || handle <= 0)
+                    return false;
+
+                var addr = GetEntityAddress(handle);
+                if (addr != IntPtr.Zero)
+                {
+                    // Get entity type and use proper World methods
+                    var entityType = Function.Call<int>(Hash.GET_ENTITY_TYPE, handle);
+                    switch (entityType)
+                    {
+                        case 1: // Ped
+                            entity = World.GetAllPeds().FirstOrDefault(p => p.Handle == handle);
+                            break;
+                        case 2: // Vehicle
+                            entity = World.GetAllVehicles().FirstOrDefault(v => v.Handle == handle);
+                            break;
+                        case 3: // Prop
+                            entity = World.GetAllProps().FirstOrDefault(p => p.Handle == handle);
+                            break;
+                        default:
+                            Logger.Log($"Unknown entity type {entityType} for handle {handle}");
+                            return false;
+                    }
+
+                    return entity != null && entity.Exists();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"GetEntityFromPool failed: {ex.Message}");
+            }
+            return false;
+        }
+
+        private static IntPtr GetEntityAddress(int handle)
+        {
+            try
+            {
+                if (!IsEntityPoolAvailable() || handle <= 0)
+                    return IntPtr.Zero;
+
+                var addr = Marshal.ReadIntPtr(_scriptEntityPoolAddr);
+                if (!IsAddressValid(addr))
+                    return IntPtr.Zero;
+
+                return addr;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+        }
+
+        public static void Initialize(GTA.Script script = null)
+        {
+            try
+            {
+                if (_isInitialized)
+                    return;
+
+                Logger.Log("Initializing memory access...");
+
+                // Wait for game to be ready
+                if (script != null)
+                {
+                    void OnTick(object sender, EventArgs args)
+                    {
+                        if (!_isInitialized && Game.Player?.Character != null && Game.Player.Character.Exists())
+                        {
+                            InitializeEntityPools();
+                            _isInitialized = true;
+                            script.Tick -= OnTick;
+                            Logger.Log("Memory access initialized");
+                        }
+                    }
+                    script.Tick += OnTick;
+                }
+                else
+                {
+                    InitializeEntityPools();
+                    _isInitialized = true;
+                    Logger.Log("Memory access initialized (sync)");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Memory access initialization failed: {ex.Message}");
+                _isInitialized = false;
+            }
+        }
+
+        public static void Shutdown()
+        {
+            _isInitialized = false;
+            _scriptEntityPoolAddr = IntPtr.Zero;
+            Logger.Log("Memory access shut down");
+        }
     }
 }

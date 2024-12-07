@@ -4,51 +4,37 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using TornadoScript.ScriptCore;
-using TornadoScript.ScriptMain.Script;
 
 namespace TornadoScript.ScriptMain.Frontend
 {
     public class FrontendOutput : IDisposable
     {
-        private const int MaxVisibleLines = 8;  // Maximum number of visible lines in console
-        private const int TextActiveTime = 10000;
-        private const int LineHeight = 25;    // Vertical space between text lines
-        private const float TextScale = 0.3f; // Size of the text
-        private const int TextPadding = 10;   // Padding around text
-        private const int ConsoleX = 20;     // Base X position for console
-        private const int ConsoleY = 280;    // Base Y position for console
-        private const int TextX = ConsoleX + 15;  // Text indent from console edge
+        private const int MaxVisibleLines = 10;  // Maximum number of visible lines in console
+        private const int TextActiveTime = 5000;
+        private const int LineHeight = 20;    // Vertical space between text lines
+        private const float TextScale = 0.4f; // Size of the text
+        private const int TextPadding = 5;   // Padding around text
+        private const int ConsoleX = 10;     // Base X position for console
+        private const int ConsoleY = 10;    // Base Y position for console
+        private const int TextX = ConsoleX + 10;  // Text indent from console edge
         private const int ConsoleWidth = 500;     // Width of console background
-        private const int TextOffsetY = -240; // Vertical offset to position text inside console
+        private const int TextOffsetY = 5; // Vertical offset to position text inside console
+        private const int FadeOutSpeed = 1;  // Reduced fade speed
 
         private readonly TextElement[] _text = new TextElement[MaxVisibleLines];  // Limit array size to max visible lines
         private readonly ContainerElement _backsplash;
-        private readonly Queue<string> _lines = new Queue<string>();  // Queue to store all lines
-        private readonly List<DateTime> _lineTimes = new List<DateTime>();
+        private readonly FrontendOutputCore _output;
         private bool _stayOnScreen;
         private int _shownTime;
         private bool _disposed;
-
-        public void Clear()
-        {
-            ThrowIfDisposed();
-            _lines.Clear();
-            _lineTimes.Clear();
-            UpdateVisibleText();
-
-            // Reset visibility
-            _backsplash.Color = Color.FromArgb(0, 0, 0, 0);
-            _stayOnScreen = false;
-
-            var frontendMgr = MainScript.GetOrCreate<FrontendManager>();
-            if (frontendMgr != null)
-            {
-                frontendMgr.ResetOutputLines();
-            }
-        }
+        private bool _needsTextUpdate = true;
+        private bool _isBacksplashDisposed;
+        private readonly object _updateLock = new object();
 
         public FrontendOutput()
         {
+            _output = new FrontendOutputCore();
+
             // Position console with consistent spacing
             _backsplash = new ContainerElement(
                 new Point(ConsoleX, ConsoleY),
@@ -76,34 +62,39 @@ namespace TornadoScript.ScriptMain.Frontend
 
         public void Update(int gameTime)
         {
-            ThrowIfDisposed();
+            if (_disposed) return;
 
-            // Only fade out if not staying on screen
-            if (!_stayOnScreen)
+            lock (_updateLock)
             {
-                if (gameTime > _shownTime + TextActiveTime)
+                if (_needsTextUpdate)
                 {
-                    if (_backsplash.Color.A > 0)
-                    {
-                        _backsplash.Color = Color.FromArgb(
-                            Math.Max(0, _backsplash.Color.A - 2),
-                            _backsplash.Color);
-                    }
+                    UpdateVisibleText();
+                    _needsTextUpdate = false;
+                }
 
-                    foreach (var text in _text)
+                // Add fade-out logic using _stayOnScreen
+                if (!_stayOnScreen && gameTime - _shownTime > TextActiveTime)
+                {
+                    // Gradually fade out
+                    var currentAlpha = _backsplash.Color.A;
+                    if (currentAlpha > 0)
                     {
-                        if (text.Color.A > 0)
+                        var newAlpha = Math.Max(0, currentAlpha - FadeOutSpeed);
+                        _backsplash.Color = Color.FromArgb(newAlpha, 0, 0, 0);
+                        
+                        // Also fade text
+                        foreach (var text in _text)
                         {
-                            text.Color = Color.FromArgb(
-                                Math.Max(0, text.Color.A - 4),
-                                text.Color);
+                            text.Color = Color.FromArgb(newAlpha, 255, 255, 255);
                         }
                     }
                 }
-            }
 
-            UpdateVisibleText();
-            _backsplash.Draw();
+                if (!_isBacksplashDisposed && _backsplash != null)
+                {
+                    _backsplash.Draw();
+                }
+            }
         }
 
         private void UpdateVisibleText()
@@ -115,8 +106,8 @@ namespace TornadoScript.ScriptMain.Frontend
             }
 
             // Update with current visible lines
-            var currentLines = _lines.ToArray();
-            for (var i = 0; i < currentLines.Length && i < MaxVisibleLines; i++)
+            var currentLines = _output.GetLines();
+            for (var i = 0; i < currentLines.Count && i < MaxVisibleLines; i++)
             {
                 _text[i].Caption = currentLines[i];
             }
@@ -140,22 +131,13 @@ namespace TornadoScript.ScriptMain.Frontend
             }
 
             // Trim long lines
-            if (line.Length > 40)
+            if (line.Length > 60)
             {
-                line = line.Substring(0, 37) + "...";
+                line = line.Substring(0, 57) + "...";
             }
 
-            // Add to queue, removing old lines if we exceed MaxVisibleLines
-            _lines.Enqueue(line);
-            _lineTimes.Add(DateTime.Now);
-            while (_lines.Count > MaxVisibleLines)
-            {
-                _lines.Dequeue();
-                _lineTimes.RemoveAt(0);
-            }
-
-            // Update visible text elements
-            UpdateVisibleText();
+            _output.AddLine(line);
+            _needsTextUpdate = true;  // Mark for update
 
             // Make sure text is visible
             _backsplash.Color = Color.FromArgb(180, 0, 0, 0);
@@ -171,11 +153,12 @@ namespace TornadoScript.ScriptMain.Frontend
         public void Show()
         {
             ThrowIfDisposed();
-            _stayOnScreen = true;
-            _backsplash.Color = Color.FromArgb(180, 0, 0, 0);
-            foreach (var text in _text)
+            lock (_updateLock)
             {
-                text.Color = Color.FromArgb(255, 255, 255, 255);
+                _backsplash.Color = Color.FromArgb(180, 0, 0, 0);
+                _stayOnScreen = true;
+                UpdateVisibleText();
+                _needsTextUpdate = false;
             }
             Logger.Debug("Console output shown");
         }
@@ -183,15 +166,36 @@ namespace TornadoScript.ScriptMain.Frontend
         public void Hide()
         {
             ThrowIfDisposed();
-            Clear();  // Explicitly clear messages when hiding
-            _stayOnScreen = false;
-            Logger.Debug("Console output hidden and cleared");
+            lock (_updateLock)
+            {
+                Clear();
+                _stayOnScreen = false;
+                _backsplash.Color = Color.FromArgb(0, 0, 0, 0);
+            }
+            Logger.Debug("Console output hidden");
         }
 
         public void EnableFadeOut()
         {
             ThrowIfDisposed();
             _stayOnScreen = false;
+        }
+
+        public void Clear()
+        {
+            ThrowIfDisposed();
+            _output.Clear();
+            
+            // Keep console visible and restore text color
+            _backsplash.Color = Color.FromArgb(180, 0, 0, 0);
+            foreach (var text in _text)
+            {
+                text.Color = Color.FromArgb(255, 255, 255, 255);
+            }
+            
+            _stayOnScreen = true;  // Keep the console visible
+            UpdateVisibleText();
+            Logger.Debug("Console output cleared but keeping console visible");
         }
 
         private void ThrowIfDisposed()
@@ -209,36 +213,117 @@ namespace TornadoScript.ScriptMain.Frontend
 
         protected virtual void Dispose(bool disposing)
         {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    // Dispose managed resources
+                    if (_backsplash is IDisposable backsplashDisposable)
+                    {
+                        backsplashDisposable.Dispose();
+                    }
+
+                    if (_text != null)
+                    {
+                        foreach (var textElement in _text)
+                        {
+                            if (textElement is IDisposable textDisposable)
+                            {
+                                textDisposable.Dispose();
+                            }
+                        }
+                    }
+
+                    // Clear message queue and reset state
+                    Clear();
+                    Hide();
+                    _output.Dispose();
+                    _isBacksplashDisposed = true; // Track that the backsplash is disposed
+                }
+
+                _disposed = true;
+            }
+        }
+
+        ~FrontendOutput()
+        {
+            Dispose(false);
+        }
+    }
+
+    public class FrontendOutputCore : IDisposable
+    {
+        private readonly List<string> _outputLines = new List<string>();
+        private readonly object _outputLock = new object();
+        private readonly int _maxLines;
+        private bool _disposed;
+
+        public FrontendOutputCore(int maxLines = 100)
+        {
+            _maxLines = maxLines;
+        }
+
+        public void AddLine(string line)
+        {
+            ThrowIfDisposed();
+            if (string.IsNullOrEmpty(line)) return;
+
+            lock (_outputLock)
+            {
+                _outputLines.Add(line);
+                while (_outputLines.Count > _maxLines)
+                {
+                    _outputLines.RemoveAt(0);
+                }
+            }
+        }
+
+        public void Clear()
+        {
+            ThrowIfDisposed();
+            lock (_outputLock)
+            {
+                _outputLines.Clear();
+            }
+        }
+
+        public IReadOnlyList<string> GetLines()
+        {
+            ThrowIfDisposed();
+            lock (_outputLock)
+            {
+                return _outputLines.AsReadOnly();
+            }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(FrontendOutputCore));
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
             if (_disposed) return;
 
             if (disposing)
             {
-                // Dispose managed resources
-                if (_backsplash is IDisposable backsplashDisposable)
-                {
-                    backsplashDisposable.Dispose();
-                }
-
-                if (_text != null)
-                {
-                    foreach (var textElement in _text)
-                    {
-                        if (textElement is IDisposable textDisposable)
-                        {
-                            textDisposable.Dispose();
-                        }
-                    }
-                }
-
-                // Clear message queue and reset state
+                // Clear all lines when disposing
                 Clear();
-                Hide();
             }
 
             _disposed = true;
         }
 
-        ~FrontendOutput()
+        ~FrontendOutputCore()
         {
             Dispose(false);
         }

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Xml;
 
 namespace TornadoScript.ScriptCore.IO
@@ -13,21 +13,19 @@ namespace TornadoScript.ScriptCore.IO
         /// <returns></returns>
         public static IEnumerable<XMLAttributesCollection> GetNestedAttributes(string fileName, string dataType)
         {
-            using (XmlReader reader = XmlReader.Create(fileName))
+            using var reader = XmlReader.Create(fileName);
+            while (reader.Read())
             {
-                while (reader.Read())
+                if (reader.NodeType == XmlNodeType.Element && reader.Name == dataType && reader.HasAttributes)
                 {
-                    if (reader.NodeType == XmlNodeType.Element && reader.Name == dataType && reader.HasAttributes)
+                    var childAttributes = new XMLAttributesCollection();
+
+                    while (reader.MoveToNextAttribute())
                     {
-                        var childAttributes = new XMLAttributesCollection();
-
-                        while (reader.MoveToNextAttribute())
-                        {
-                            childAttributes.Add(reader.Name, reader.Value);
-                        }
-
-                        yield return childAttributes;
+                        childAttributes.Add(reader.Name, reader.Value);
                     }
+
+                    yield return childAttributes;
                 }
             }
         }

@@ -2,6 +2,7 @@ using GTA;
 using GTA.Math;
 using GTA.Native;
 using System;
+using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Utility;
 
@@ -18,7 +19,6 @@ namespace TornadoScript.ScriptMain.Script
         private const string EventOnSpawn = "OnSpawn";
         private const string EventOnDestroy = "OnDestroy";
         private const string EventOnCollision = "OnCollision";
-        private const string EventOnDamage = "OnDamage";
         #endregion
 
         #region Event Data Classes
@@ -28,13 +28,6 @@ namespace TornadoScript.ScriptMain.Script
             public Vector3 Velocity { get; set; }
             public float Force { get; set; }
             public float Speed { get; set; }
-        }
-
-        public class DamageEventData
-        {
-            public float Damage { get; set; }
-            public Vector3 Position { get; set; }
-            public bool IsLethal { get; set; }
         }
 
         public class SpawnEventData
@@ -82,25 +75,25 @@ namespace TornadoScript.ScriptMain.Script
         public bool IsAlive => IsValid && !_isDestroyed;
 
         // Script variables with thread-safe access
-        private float ForceMultiplier
+        public float ForceMultiplier
         {
             get => GetVar<float>(VarKeyForceMultiplier);
             set => SetVar(VarKeyForceMultiplier, value);
         }
 
-        private float LiftMultiplier
+        public float LiftMultiplier
         {
             get => GetVar<float>(VarKeyLiftMultiplier);
             set => SetVar(VarKeyLiftMultiplier, value);
         }
 
-        private float MaxSpeed
+        public float MaxSpeed
         {
             get => GetVar<float>(VarKeyMaxSpeed);
             set => SetVar(VarKeyMaxSpeed, value);
         }
 
-        private float CollisionThreshold
+        public float CollisionThreshold
         {
             get => GetVar<float>(VarKeyCollisionThreshold);
             set => SetVar(VarKeyCollisionThreshold, value);
@@ -128,7 +121,6 @@ namespace TornadoScript.ScriptMain.Script
             RegisterEvent(EventOnSpawn);
             RegisterEvent(EventOnDestroy);
             RegisterEvent(EventOnCollision);
-            RegisterEvent(EventOnDamage);
 
             Initialize(position);
         }
@@ -145,69 +137,6 @@ namespace TornadoScript.ScriptMain.Script
 
             // Notify component initialization
             OnComponentInitialized?.Invoke(Thread, new ScriptComponentEventArgs(this));
-        }
-
-        private void HandleCollision(float force)
-        {
-            if (!IsValid || force < 1.0f) return;
-
-            // Create collision event data
-            var collisionData = new CollisionEventData
-            {
-                Position = _prop.Position,
-                Force = force,
-                Speed = force * 10,
-                Velocity = (_prop.Position - _lastPosition).Normalized * force
-            };
-
-            NotifyEvent(EventOnCollision, new ScriptEventArgs(collisionData));
-
-            // Apply random rotation on collision
-            var rotation = _prop.Rotation;
-            rotation.X += Probability.GetFloat(-force * 10, force * 10);
-            rotation.Y += Probability.GetFloat(-force * 10, force * 10);
-            rotation.Z += Probability.GetFloat(-force * 10, force * 10);
-            _prop.Rotation = rotation;
-
-            // Add some upward force on heavy collisions
-            if (force > 5.0f)
-            {
-                var upwardForce = new Vector3(0, 0, force * 2.0f);
-                _prop.ApplyForce(upwardForce);
-            }
-        }
-
-        private void HandleDamage(float damage)
-        {
-            if (!IsValid || damage < 1.0f) return;
-
-            var isLethal = damage > 50.0f && Probability.GetFloat(0, 100) < damage;
-
-            // Create damage event data
-            var damageData = new DamageEventData
-            {
-                Damage = damage,
-                Position = _prop.Position,
-                IsLethal = isLethal
-            };
-
-            NotifyEvent(EventOnDamage, new ScriptEventArgs(damageData));
-
-            // Handle lethal damage
-            if (isLethal)
-            {
-                Destroy();
-                return;
-            }
-
-            // Add some random force based on damage
-            var randomDir = new Vector3(
-                Probability.GetFloat(-1f, 1f),
-                Probability.GetFloat(-1f, 1f),
-                Probability.GetFloat(0f, 1f)
-            ).Normalized;
-
-            _prop.ApplyForce(randomDir * damage * 0.5f);
         }
 
         private Prop CreateDebrisProp(Vector3 position)
@@ -242,6 +171,44 @@ namespace TornadoScript.ScriptMain.Script
             Function.Call(Hash.SET_ENTITY_DYNAMIC, prop.Handle, true);
             Function.Call(Hash.SET_ENTITY_HAS_GRAVITY, prop.Handle, true);
             Function.Call(Hash.SET_ENTITY_LOAD_COLLISION_FLAG, prop.Handle, true);
+        }
+
+        public bool Initialize(string modelName)
+        {
+            if (IsValid)
+                return false;
+
+            _modelName = modelName;
+            try
+            {
+                _prop = CreateDebrisProp(Parent.Position + _heightOffset);
+                if (_prop == null)
+                    return false;
+
+                var centerPos = Parent.Position + _heightOffset;
+                _prop.Position = centerPos + new Vector3(
+                    _radius * (float)Math.Cos(_currentAngle),
+                    _radius * (float)Math.Sin(_currentAngle),
+                    0
+                );
+                _lastPosition = _prop.Position;
+
+                // Create spawn event data
+                var spawnData = new SpawnEventData
+                {
+                    Position = _prop.Position,
+                    ModelName = _modelName,
+                    Radius = _radius
+                };
+
+                NotifyEvent(EventOnSpawn, new ScriptEventArgs(spawnData));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to initialize debris with model {modelName}: {ex.Message}");
+                return false;
+            }
         }
 
         public void Initialize(Vector3 position)

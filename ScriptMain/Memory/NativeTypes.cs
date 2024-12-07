@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -198,18 +198,18 @@ namespace TornadoScript.ScriptMain.Memory
         public uint Flags; //0x20-0x24
         public int Unk; //0x24-0x28
 
-        public long GetMask(int index)
+        public readonly long GetMask(int index)
         {
             long num = Marshal.ReadByte(BitMap + index) & 0x80;
             return ~((num | -num) >> 0x3F);
         }
 
-        public IntPtr GetAddress(int index)
+        public readonly IntPtr GetAddress(int index)
         {
             return new IntPtr(GetMask(index) & (Items + ItemSize * index));
         }
 
-        public bool IsFull()
+        public readonly bool IsFull()
         {
             return Count - (Flags & 0x3FFFFFFF) <= 256;
         }

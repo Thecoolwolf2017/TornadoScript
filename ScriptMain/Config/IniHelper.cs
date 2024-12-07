@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -38,7 +38,7 @@ namespace TornadoScript.ScriptMain.Config
         /// <param name="key">The config setting</param>
         /// <param name="defaultValue"></param>
         /// <returns></returns>
-        public static T GetValue<T>(string section, string key, T defaultValue = default(T))
+        public static T GetValue<T>(string section, string key, T defaultValue = default)
         {
             Type type = typeof(T);
             if (!type.IsValueType && type != typeof(string))

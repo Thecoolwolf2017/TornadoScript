@@ -6,12 +6,12 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Collections;
 using TornadoScript.ScriptCore.Game;
-using TornadoScript.ScriptMain.Memory;
 using TornadoScript.ScriptMain.Utility;
 
 namespace TornadoScript.ScriptMain.Script
@@ -21,11 +21,10 @@ namespace TornadoScript.ScriptMain.Script
         #region Constants
         private const float FIXED_TIME_STEP = 0.016666668f;
         private const float DEFAULT_FORCE_SCALE = 3.0f;
-        private const float DEFAULT_INTERNAL_FORCES_DIST = 5.0f;
         private const int DEFAULT_MAX_ENTITY_COUNT = 300;
-        private const float DEFAULT_ENTITY_REUSE_DISTANCE = 20f;
-        private const int DEFAULT_MAX_POOL_SIZE = 50;
         private const float DEFAULT_COLOR_LERP_DURATION = 200.0f;
+        private const float DEFAULT_SCALE = 1.0f;
+        private const int DEBRIS_SPAWN_INTERVAL = 500; // milliseconds between debris spawns
         #endregion
 
         #region Particle System
@@ -42,105 +41,89 @@ namespace TornadoScript.ScriptMain.Script
             public float RotationSpeed { get; set; } = 1.0f;
             public float HeightOffset { get; set; }
 
-            public async Task<bool> StartFxAsync(string effectAsset = null, string effectName = null, float scale = 1.0f)
+            public bool StartFx(string effectAsset = null, string effectName = null, float scale = 1.0f)
+{
+    if (_disposed) return false;
+
+    try
+    {
+        CleanupExistingParticle();
+        
+        // Use more stable default effects if none provided
+        effectAsset = effectAsset ?? "scr_trevor3";
+        effectName = effectName ?? "scr_trev3_trailer_plume";
+
+        Logger.Log($"Loading particle effect: {effectAsset}/{effectName} at position {Position}");
+
+        // Request the effect asset
+        Function.Call(Hash.REQUEST_NAMED_PTFX_ASSET, effectAsset);
+        
+        // Wait longer for asset to load with more attempts
+        int attempts = 0;
+        const int maxAttempts = 30; // Increased from 20
+        while (!Function.Call<bool>(Hash.HAS_NAMED_PTFX_ASSET_LOADED, effectAsset) && attempts < maxAttempts)
+        {
+            GTA.Script.Wait(100);
+            attempts++;
+        }
+
+        if (!Function.Call<bool>(Hash.HAS_NAMED_PTFX_ASSET_LOADED, effectAsset))
+        {
+            Logger.Error($"Failed to load particle effect asset {effectAsset} after {maxAttempts} attempts");
+            return false;
+        }
+
+        Function.Call(Hash.USE_PARTICLE_FX_ASSET, effectAsset);
+
+        // Create particle with more conservative initial parameters
+        _particleHandle = Function.Call<int>(Hash.START_PARTICLE_FX_LOOPED_AT_COORD,
+            effectName,
+            Position.X, Position.Y, Position.Z,
+            0f, 0f, 0f,  // No rotation
+            Math.Min(scale, 3.0f),  // Limit scale to prevent issues
+            false, false, false,
+            false);
+
+        if (_particleHandle == 0 || _particleHandle == -1)
+        {
+            Logger.Error($"Failed to create particle effect at position {Position}");
+            return false;
+        }
+
+        // Set more conservative particle settings
+        Function.Call(Hash.SET_PARTICLE_FX_LOOPED_ALPHA, _particleHandle, 0.8f);
+        Function.Call(Hash.SET_PARTICLE_FX_LOOPED_SCALE, _particleHandle, Math.Min(scale, 3.0f));
+        Function.Call(Hash.SET_PARTICLE_FX_LOOPED_FAR_CLIP_DIST, _particleHandle, 2000.0f);
+        
+        Logger.Log($"Successfully created particle effect at {Position} with handle {_particleHandle}");
+        return true;
+    }
+    catch (Exception ex)
+    {
+        Logger.Error($"Error in StartFx: {ex.Message}\nStack trace: {ex.StackTrace}");
+        return false;
+    }
+}
+
+            private bool CleanupExistingParticle()
             {
-                if (_disposed) return false;
-
-                try
+                if (_particleHandle != -1)
                 {
-                    await CleanupExistingParticle();
-
-                    effectAsset ??= ScriptThread.GetVar<string>("vortexParticleAsset")?.Value ?? "scr_rcbarry2";
-                    effectName ??= ScriptThread.GetVar<string>("vortexParticleName")?.Value ?? "scr_clown_appears";
-
-                    Logger.Log($"Loading particle effect: {effectAsset}/{effectName}");
-
-                    if (!await LoadParticleAsset(effectAsset))
-                        return false;
-
-                    return await CreateParticleEffect(effectName, scale);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"Error in StartFx: {ex.Message}");
-                    Logger.Error($"Stack trace: {ex.StackTrace}");
-                    return false;
-                }
-            }
-
-            private async Task<bool> LoadParticleAsset(string effectAsset)
-            {
-                Function.Call(Hash.REQUEST_NAMED_PTFX_ASSET, effectAsset);
-
-                const int maxAttempts = 50;
-                int attempts = 0;
-
-                while (!Function.Call<bool>(Hash.HAS_NAMED_PTFX_ASSET_LOADED, effectAsset))
-                {
-                    if (attempts >= maxAttempts)
+                    try
                     {
-                        Logger.Error($"Timed out waiting for particle effect asset {effectAsset}");
-                        return false;
+                        Function.Call(Hash.STOP_PARTICLE_FX_LOOPED, _particleHandle, false);
+                        Function.Call(Hash.REMOVE_PARTICLE_FX, _particleHandle, false);
+                        _particleHandle = -1;
                     }
-                    await Task.Delay(100);
-                    attempts++;
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Error cleaning up particle: {ex.Message}");
+                    }
                 }
-
                 return true;
             }
 
-            private async Task<bool> CreateParticleEffect(string effectName, float scale)
-            {
-                try
-                {
-                    await Task.Yield(); // Ensure we're running asynchronously
-
-                    Function.Call(Hash.USE_PARTICLE_FX_ASSET, effectName);
-
-                    _particleHandle = Function.Call<int>(Hash.START_PARTICLE_FX_LOOPED_AT_COORD,
-                        effectName,
-                        Position.X, Position.Y, Position.Z,
-                        0f, 0f, 0f,
-                        scale,
-                        false, false, false,
-                        false);
-
-                    if (_particleHandle == -1)
-                    {
-                        Logger.Error($"Failed to create particle effect {effectName}");
-                        return false;
-                    }
-
-                    Logger.Log($"Created particle effect {effectName} at {Position}");
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"Error creating particle effect: {ex.Message}");
-                    Logger.Error($"Stack trace: {ex.StackTrace}");
-                    return false;
-                }
-            }
-
-            private async Task CleanupExistingParticle()
-            {
-                try
-                {
-                    if (_particleHandle != -1)
-                    {
-                        Function.Call(Hash.REMOVE_PARTICLE_FX, _particleHandle, false);
-                        _particleHandle = -1;
-                        await Task.Delay(50); // Small delay to ensure cleanup
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"Error cleaning up particle: {ex.Message}");
-                    Logger.Error($"Stack trace: {ex.StackTrace}");
-                }
-            }
-
-            public void Dispose()
+            protected virtual void Dispose(bool disposing)
             {
                 if (_disposed) return;
 
@@ -152,91 +135,106 @@ namespace TornadoScript.ScriptMain.Script
                     {
                         if (_particleHandle != -1)
                         {
+                            // First stop the looped effect
+                            Function.Call(Hash.STOP_PARTICLE_FX_LOOPED, _particleHandle, false);
+                            // Then remove it
                             Function.Call(Hash.REMOVE_PARTICLE_FX, _particleHandle, false);
+                            // Finally, remove all particle effects in the area
+                            Function.Call(Hash.REMOVE_PARTICLE_FX_IN_RANGE, Position.X, Position.Y, Position.Z, 100f);
                             _particleHandle = -1;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Error disposing particle: {ex.Message}");
+                        Logger.Error($"Error in Dispose: {ex.Message}");
+                        Logger.Error($"Stack trace: {ex.StackTrace}");
                     }
 
                     _disposed = true;
                 }
             }
 
-            ~TornadoParticle()
+            public void Dispose()
             {
-                Dispose();
+                Dispose(true);
+                GC.SuppressFinalize(this);
             }
-        }
 
+            ~TornadoParticle() => Dispose(false);
+        }
         #endregion
 
         #region Entity Management
-        private readonly ConcurrentDictionary<int, PulledEntity> _pulledEntities;
-        private readonly ConcurrentBag<int> _pendingRemovalEntities;
+        private readonly ConcurrentBag<int> _pendingRemovalEntities = new ConcurrentBag<int>();
+        private readonly ConcurrentDictionary<int, PulledEntity> _pulledEntities = new ConcurrentDictionary<int, PulledEntity>();
+        private readonly object _disposeLock = new object();
+        private bool _disposed;
+        private bool _isDisposing;
+        private bool _despawnRequested;
+        private int lastParticleShapeTestTime;
+        private Vector3 _position;
+        private Vector3 _destination;
         private readonly List<TornadoParticle> _particles = new List<TornadoParticle>();
         private ObjectPool<Entity> _entityPool;
         #endregion
 
         private bool _isInitialized;
-
         private Materials LastMaterialTraversed { get; set; } = Materials.Tarmac;
-        /// <summary>
-        /// Scale of the vortex forces.
-        /// </summary>
-        public float ForceScale { get; } = DEFAULT_FORCE_SCALE;
+        private float _scale = DEFAULT_SCALE;
+        private float _rotationSpeed = 1.0f;
+        private float _forceScale = DEFAULT_FORCE_SCALE;
 
-        /// <summary>
-        /// Maximum distance entites must be from the vortex before we start using internal vortext forces on them.
-        /// </summary>
-        public float InternalForcesDist { get; } = DEFAULT_INTERNAL_FORCES_DIST;
+        public float Scale
+        {
+            get => _scale;
+            set
+            {
+                _scale = Math.Max(0.1f, Math.Min(value, 10.0f)); // Clamp between 0.1 and 10
+                UpdateParticleScales();
+            }
+        }
 
-        private int _createdTime, _nextUpdateTime;
-        private int _lastDebrisSpawnTime = 0;
-        private int _lastFullUpdateTime;
-        private int _lifeSpan;
+        public float RotationSpeed
+        {
+            get => _rotationSpeed;
+            set => _rotationSpeed = Math.Max(0.1f, Math.Min(value, 5.0f)); // Clamp between 0.1 and 5
+        }
 
-        public const int MaxEntityCount = DEFAULT_MAX_ENTITY_COUNT;
-
-        private Vector3 _position, _destination;
-        private bool _despawnRequested;
-        private bool _disposed;
-        private bool _isDisposing;
-        private readonly object _disposeLock = new object();
-
-        private readonly List<Model> _loadedModels = new List<Model>();
-        private int _scriptFire = -1;
+        public float ForceScale
+        {
+            get => _forceScale;
+            set => _forceScale = Math.Max(0.1f, Math.Min(value, 10.0f)); // Clamp between 0.1 and 10
+        }
 
         public Vector3 Position
         {
-            get { return _position; }
-            set { _position = value; }
+            get => _position;
+            set
+            {
+                _position = value;
+                _destination = value;
+            }
         }
+
+        private int _createdTime, _nextUpdateTime, _lastFullUpdateTime, _lastDebrisSpawnTime;
+        private int _lifeSpan;
+
+        public const int MaxEntityCount = DEFAULT_MAX_ENTITY_COUNT;
+        private readonly List<Model> _loadedModels = new List<Model>();
+        private int _scriptFire = -1;
 
         public bool DespawnRequested
         {
-            get { return _despawnRequested; }
-            set { _despawnRequested = value; }
+            get => _despawnRequested;
+            set => _despawnRequested = value;
         }
 
         private readonly Ped _player = Helpers.GetLocalPed();
-        private int _lastPlayerShapeTestTime;
-        private bool _lastRaycastResultFailed;
-        private int lastParticleShapeTestTime = 0;
-        private Color particleColorPrev, particleColorGoal;
         private Color particleColor = Color.Black;
-        private float particleLerpTime = 0.0f;
-        private const float ColorLerpDuration = DEFAULT_COLOR_LERP_DURATION;
-        private bool _useInternalEntityArray = false;
+        private bool _useInternalEntityArray;
 
-        // todo: Add crosswinds at vortex base w/ raycast
         public TornadoVortex(Vector3 initialPosition, bool neverDespawn)
         {
-            _pulledEntities = new ConcurrentDictionary<int, PulledEntity>();
-            _pendingRemovalEntities = new ConcurrentBag<int>();
-
             try
             {
                 _position = initialPosition;
@@ -245,14 +243,13 @@ namespace TornadoScript.ScriptMain.Script
                 _nextUpdateTime = Game.GameTime;
                 _lastFullUpdateTime = Game.GameTime;
 
-                // Default lifespan if script vars not initialized yet
                 _lifeSpan = neverDespawn ? -1 : 60000; // Default 60 seconds
 
                 Logger.Log($"Created TornadoVortex at {initialPosition}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Error in TornadoVortex constructor: {ex.Message}");
+                Logger.Error($"Error in TornadoVortex Constructor: {ex.Message}");
                 Logger.Error($"Stack trace: {ex.StackTrace}");
                 throw;
             }
@@ -263,66 +260,106 @@ namespace TornadoScript.ScriptMain.Script
             try
             {
                 base.OnThreadAttached();
+                InitializeScriptVariables();
+                InitializeEntityPoolIfNeeded();
 
-                // Now that script thread is initialized, we can safely get script vars
-                if (_lifeSpan > 0) // Only update if not set to never despawn
-                {
-                    _lifeSpan = GetOrSetDefaultVar("vortexLifeSpan", 60000);
-                }
+                // Initialize other variables
+                _createdTime = Game.GameTime;
+                _scale = GetOrSetDefaultVar("vortexBaseScale", DEFAULT_SCALE);
+                _rotationSpeed = GetOrSetDefaultVar("vortexRotationSpeed", 1.0f);
+                _forceScale = GetOrSetDefaultVar("vortexForceScale", DEFAULT_FORCE_SCALE);
 
-                // Initialize entity pool if enabled
-                _useInternalEntityArray = GetOrSetDefaultVar("vortexUseEntityPool", true);
-                if (_useInternalEntityArray)
-                {
-                    InitializeEntityPool();
-                }
-
-                Logger.Log($"TornadoVortex initialized with lifespan: {_lifeSpan}");
+                Logger.Log($"TornadoVortex initialized with lifespan: {_lifeSpan}, scale: {_scale}, rotation: {_rotationSpeed}");
                 _isInitialized = true;
             }
             catch (Exception ex)
             {
-                Logger.Error($"Error in TornadoVortex.OnThreadAttached: {ex.Message}");
+                Logger.Error($"Error in OnThreadAttached: {ex.Message}");
                 Logger.Error($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
 
+        private void InitializeScriptVariables()
+        {
+            SetDefaultVar("vortexMaxEntityDist", 100f);
+            SetDefaultVar("vortexVerticalPullForce", 1.0f);
+            SetDefaultVar("vortexHorizontalPullForce", 1.0f);
+            SetDefaultVar("vortexTopEntitySpeed", 50.0f);
+            SetDefaultVar("vortexMovementEnabled", true);
+
+            if (_lifeSpan > 0) // Only update if not set to never despawn
+            {
+                _lifeSpan = GetOrSetDefaultVar("vortexLifeSpan", 60000);
+            }
+        }
+
+        private void InitializeEntityPoolIfNeeded()
+        {
+            if (GetOrSetDefaultVar("vortexUseEntityPool", true))
+            {
+                InitializeEntityPool();
+            }
+        }
+
         private void InitializeEntityPool()
         {
-            if (_useInternalEntityArray)
+            // Current pool size of 3 is very small
+            // Could cause performance issues with large numbers of entities
+            _entityPool = new ObjectPool<Entity>(CreateEntity, 3, ResetEntity);
+            Logger.Log("Basic entity pool initialized");
+
+            for (int i = 0; i < 3; i++)
+            {
+                var entity = _entityPool.Get();
+                if (entity != null && entity.Exists())
+                {
+                    ResetEntity(entity);
+                }
+            }
+
+            _useInternalEntityArray = true;
+        }
+
+        private Entity CreateEntity()
+        {
+            try
             {
                 var model = new Model("prop_barrel_02a");
+                if (!model.IsLoaded && !model.Request(1000))
+                {
+                    Logger.Log("Model load failed - running without entity pool");
+                    return null;
+                }
+
                 _loadedModels.Add(model);
+                var entity = World.CreateProp(model, _position, false, false);
+                if (entity != null)
+                {
+                    entity.IsInvincible = true;
+                    Function.Call(Hash.FREEZE_ENTITY_POSITION, entity.Handle, true);
+                }
+                return entity;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
-                _entityPool = new ObjectPool<Entity>(
-                    () =>
-                    {
-                        if (!model.IsLoaded && !model.Request(1000))
-                            throw new InvalidOperationException("Failed to load model: prop_barrel_02a");
-
-                        var entity = World.CreateProp(model, _position, false, false);
-                        if (entity != null)
-                        {
-                            entity.IsInvincible = true;
-                            Function.Call(Hash.FREEZE_ENTITY_POSITION, entity.Handle, true);
-                        }
-                        return entity;
-                    },
-                    DEFAULT_MAX_POOL_SIZE,
-                    (entity) =>
-                    {
-                        if (entity != null && entity.Exists())
-                        {
-                            Function.Call(Hash.FREEZE_ENTITY_POSITION, entity.Handle, true);
-                            entity.Position = _position + new Vector3(0, 0, 1000); // Move far up
-                            entity.Velocity = Vector3.Zero;
-                            entity.LocalRotationVelocity = Vector3.Zero;
-                            entity.Quaternion = Quaternion.Identity;
-                        }
-                    });
-
-                Logger.Log($"Initialized entity pool with max size: {DEFAULT_MAX_POOL_SIZE}");
+        private void ResetEntity(Entity entity)
+        {
+            try
+            {
+                if (entity != null && entity.Exists())
+                {
+                    entity.Position = _position + new Vector3(0, 0, 100);
+                    entity.Velocity = Vector3.Zero;
+                }
+            }
+            catch
+            {
+                // Ignore reset errors
             }
         }
 
@@ -339,7 +376,7 @@ namespace TornadoScript.ScriptMain.Script
                 }
 
                 var value = scriptVar.Value;
-                if (typeof(T) == typeof(float) && EqualityComparer<T>.Default.Equals(value, default(T)))
+                if (EqualityComparer<T>.Default.Equals(value, default(T)))
                 {
                     Logger.Log($"Variable {name} has default value, setting to: {defaultValue}");
                     ScriptThread.SetVar(name, defaultValue);
@@ -351,14 +388,275 @@ namespace TornadoScript.ScriptMain.Script
             }
             catch (Exception ex)
             {
-                Logger.Error($"Error getting/setting variable {name}: {ex.Message}");
+                Logger.Error($"Error in GetOrSetDefaultVar for {name}: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
                 ScriptThread.SetVar(name, defaultValue);
                 return defaultValue;
             }
         }
 
+        private void SetDefaultVar<T>(string name, T defaultValue)
+        {
+            if (ScriptThread.GetVar<T>(name) == null)
+            {
+                Logger.Log($"Setting default value for {name}: {defaultValue}");
+                ScriptThread.SetVar(name, defaultValue);
+            }
+        }
+
         private float _accumulatedTime;
         private readonly Stopwatch _updateStopwatch = new Stopwatch();
+
+        public override void OnUpdate(int gameTime)
+        {
+            try
+            {
+                if (!_isInitialized || _isDisposing) return;
+
+                float deltaTime = Game.LastFrameTime;
+                if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime))
+                {
+                    Logger.Error("Invalid deltaTime in TornadoVortex.OnUpdate");
+                    return;
+                }
+
+                UpdateComponent(deltaTime);
+                UpdateMovementIfNeeded(deltaTime);
+                CheckLifespan(gameTime);
+                UpdateCrosswinds(gameTime);
+                UpdateSurfaceDetection(gameTime);
+                UpdatePulledEntities(gameTime);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in OnUpdate: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+                Dispose();
+            }
+        }
+
+        private void UpdateMovementIfNeeded(float deltaTime)
+        {
+            if (_position != _destination)
+            {
+                UpdateMovement(deltaTime);
+            }
+        }
+
+        private void CheckLifespan(int gameTime)
+        {
+            if (_lifeSpan > 0 && gameTime - _createdTime > _lifeSpan)
+            {
+                DespawnRequested = true;
+            }
+        }
+
+        private const int ENTITY_UPDATE_BATCH_SIZE = 2;
+        private const int UPDATE_INTERVAL_MS = 8;
+        private const int MAX_REMOVALS_PER_FRAME = 3;
+        private const float MIN_FORCE_THRESHOLD = 0.05f;
+        private const float MIN_SPEED_THRESHOLD = 0.1f;
+
+        private float _lastUpdateTime;
+        private int _currentEntityBatch;
+        private readonly HashSet<int> _processedEntities = new HashSet<int>();
+
+        protected virtual void UpdatePulledEntities(int gameTime)
+        {
+            try
+            {
+                if (gameTime - _lastUpdateTime < UPDATE_INTERVAL_MS) return;
+
+                _lastUpdateTime = gameTime;
+                var vortexPos = Position;
+                float maxEntityDist = ScriptThread.GetVar<float>("vortexMaxEntityDist")?.Value ?? 100f;
+                float forceScale = ForceScale;
+                float verticalPullForce = ScriptThread.GetVar<float>("vortexVerticalPullForce")?.Value ?? 1.0f;
+                float horizontalPullForce = ScriptThread.GetVar<float>("vortexHorizontalPullForce")?.Value ?? 1.0f;
+                float topSpeed = ScriptThread.GetVar<float>("vortexTopEntitySpeed")?.Value ?? 50.0f;
+
+                var currentBatch = _pulledEntities.ToList()
+                                                .Skip(_currentEntityBatch * ENTITY_UPDATE_BATCH_SIZE)
+                                                .Take(ENTITY_UPDATE_BATCH_SIZE)
+                                                .ToList();
+
+                if (!currentBatch.Any())
+                {
+                    _currentEntityBatch = 0;
+                    _processedEntities.Clear();
+                    return;
+                }
+
+                foreach (var kvp in currentBatch)
+                {
+                    if (_processedEntities.Contains(kvp.Key)) continue;
+
+                    if (kvp.Value?.Entity == null || !kvp.Value.Entity.Exists())
+                    {
+                        _pendingRemovalEntities.Add(kvp.Key);
+                        continue;
+                    }
+
+                    var entity = kvp.Value.Entity;
+                    var entityPos = entity.Position;
+
+                    float distanceToVortex = Vector3.DistanceSquared(entityPos, vortexPos);
+                    float maxDistSquared = maxEntityDist * maxEntityDist;
+                    if (distanceToVortex > maxDistSquared)
+                    {
+                        _pendingRemovalEntities.Add(kvp.Key);
+                        continue;
+                    }
+
+                    ApplyForcesToEntity(entity, vortexPos, distanceToVortex,
+                        horizontalPullForce, verticalPullForce, forceScale, topSpeed, gameTime);
+
+                    _processedEntities.Add(kvp.Key);
+                    GTA.Script.Yield();
+                }
+
+                UpdateBatchCounter();
+                ProcessPendingRemovals();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in UpdatePulledEntities: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+            }
+
+            GTA.Script.Yield();
+        }
+
+        private void ApplyForcesToEntity(Entity entity, Vector3 vortexPos,
+            float distanceToVortex, float horizontalPullForce,
+            float verticalPullForce, float forceScale, float topSpeed, int gameTime)
+        {
+            var entityPos = entity.Position;
+
+            var directionToTarget = vortexPos - entityPos;
+            directionToTarget.Z = 0;
+
+            float forceMagnitude = directionToTarget.Length();
+            if (forceMagnitude > MIN_FORCE_THRESHOLD)
+            {
+                directionToTarget /= forceMagnitude;
+
+                float distanceScale = 1.0f - (float)Math.Sqrt(distanceToVortex) / (float)Math.Sqrt(horizontalPullForce);
+                float scaledForce = horizontalPullForce * forceScale * distanceScale;
+
+                if (scaledForce > MIN_FORCE_THRESHOLD)
+                {
+                    entity.ApplyForce(directionToTarget * scaledForce);
+                }
+
+                float heightDiff = vortexPos.Z - entityPos.Z;
+                float verticalScale = Math.Min(1.0f, Math.Max(0.1f, heightDiff / 30.0f));
+                float scaledVerticalForce = verticalPullForce * forceScale * verticalScale * distanceScale;
+
+                if (scaledVerticalForce > MIN_FORCE_THRESHOLD)
+                {
+                    entity.ApplyForce(new Vector3(0, 0, scaledVerticalForce));
+                }
+            }
+
+            if (gameTime % 16 == 0)
+            {
+                LimitEntitySpeed(entity, topSpeed);
+            }
+        }
+
+        private void LimitEntitySpeed(Entity entity, float topSpeed)
+        {
+            var velocity = entity.Velocity;
+            var speed = velocity.Length();
+            if (speed > topSpeed + MIN_SPEED_THRESHOLD)
+            {
+                entity.Velocity = velocity * (topSpeed / speed);
+            }
+        }
+
+        private void UpdateBatchCounter()
+        {
+            _currentEntityBatch++;
+            if (_currentEntityBatch * ENTITY_UPDATE_BATCH_SIZE >= _pulledEntities.Count)
+            {
+                _currentEntityBatch = 0;
+                _processedEntities.Clear();
+            }
+        }
+
+        private void ProcessPendingRemovals()
+        {
+            if (_pendingRemovalEntities.Count > 0)
+            {
+                foreach (var e in _pendingRemovalEntities.Take(MAX_REMOVALS_PER_FRAME))
+                {
+                    _pulledEntities.TryRemove(e, out _);
+                }
+
+                for (int i = 0; i < MAX_REMOVALS_PER_FRAME && _pendingRemovalEntities.Count > 0; i++)
+                {
+                    _pendingRemovalEntities.TryTake(out _);
+                }
+            }
+        }
+
+        protected virtual void FixedUpdate(float fixedDeltaTime)
+        {
+            try
+            {
+                if (ScriptThread.GetVar<bool>("vortexMovementEnabled")?.Value ?? true)
+                {
+                    UpdateMovement(fixedDeltaTime);
+                }
+
+                UpdatePulledEntities(Game.GameTime);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in FixedUpdate: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private void UpdateVariables(float deltaTime)
+        {
+            try
+            {
+                if (_disposed || _isDisposing || !_isInitialized) return;
+
+                int gameTime = Game.GameTime;
+
+                if (ScriptThread.GetVar<bool>("vortexEnableSurfaceDetection")?.Value ?? false)
+                {
+                    UpdateSurfaceDetectionIfValid(gameTime);
+                }
+
+                if (gameTime - _lastFullUpdateTime >= 250) // 4 times per second
+                {
+                    CollectNearbyEntities(gameTime);
+                    _lastFullUpdateTime = gameTime;
+                }
+
+                if (LastMaterialTraversed != Materials.None)
+                {
+                    UpdateDebrisLayer(LastMaterialTraversed);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in UpdateVariables: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private void UpdateSurfaceDetectionIfValid(int gameTime)
+        {
+            if (_position != null && _position != default(Vector3))
+            {
+                UpdateSurfaceDetection(gameTime);
+            }
+        }
 
         protected override void UpdateComponent(float deltaTime)
         {
@@ -368,170 +666,97 @@ namespace TornadoScript.ScriptMain.Script
             {
                 _updateStopwatch.Restart();
 
-                // Accumulate time for fixed updates
-                _accumulatedTime += deltaTime;
+                if (!float.IsNaN(deltaTime) && !float.IsInfinity(deltaTime))
+                {
+                    _accumulatedTime += deltaTime;
+                }
 
-                // Run fixed time updates
                 while (_accumulatedTime >= FIXED_TIME_STEP)
                 {
-                    FixedUpdate(FIXED_TIME_STEP);
+                    if (!_disposed && !_isDisposing)
+                    {
+                        FixedUpdate(FIXED_TIME_STEP);
+                    }
                     _accumulatedTime -= FIXED_TIME_STEP;
                 }
 
-                // Run variable time updates
-                VariableUpdate(deltaTime);
+                if (!_disposed && !_isDisposing)
+                {
+                    UpdateVariables(deltaTime);
+                }
 
                 _updateStopwatch.Stop();
-                if (_updateStopwatch.ElapsedMilliseconds > 16) // Log if update takes longer than one frame at 60fps
+                if (_updateStopwatch.ElapsedMilliseconds > 16)
                 {
                     Logger.Log($"Long update detected: {_updateStopwatch.ElapsedMilliseconds}ms");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"Error in TornadoVortex.UpdateComponent: {ex.Message}");
+                Logger.Error($"Error in UpdateComponent: {ex.Message}");
                 Logger.Error($"Stack trace: {ex.StackTrace}");
-                Dispose();
+                try
+                {
+                    Dispose();
+                }
+                catch (Exception disposeEx)
+                {
+                    Logger.Error($"Error during emergency dispose: {disposeEx.Message}");
+                }
             }
         }
 
-        public override void OnUpdate(int gameTime)
-        {
-            try
-            {
-                // Early exit if not initialized or disposing
-                if (!_isInitialized || _isDisposing)
-                {
-                    return;
-                }
-
-                // Ensure ScriptThread.Vars is available
-                if (ScriptThread.Vars == null)
-                {
-                    Logger.Error("ScriptThread.Vars is null in TornadoVortex.OnUpdate");
-                    return;
-                }
-
-                // Calculate delta time with safety check
-                float deltaTime = Game.LastFrameTime;
-                if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime))
-                {
-                    Logger.Error("Invalid deltaTime in TornadoVortex.OnUpdate");
-                    return;
-                }
-
-                // Update component with delta time
-                UpdateComponent(deltaTime);
-
-                // Update position if needed
-                if (_position != _destination)
-                {
-                    UpdateMovement(deltaTime);
-                }
-
-                // Check lifespan
-                if (_lifeSpan > 0 && Game.GameTime - _createdTime > _lifeSpan)
-                {
-                    _despawnRequested = true;
-                }
-
-                // Update vortex effects with null checks
-                if (!_isDisposing)
-                {
-                    UpdateCrosswinds(gameTime);
-                    UpdateSurfaceDetection(gameTime);
-                    UpdateDebrisLayer(LastMaterialTraversed);
-
-                    // Collect and update entities
-                    if (_pulledEntities != null)
-                    {
-                        CollectNearbyEntities(gameTime, 100f);
-                        UpdatePulledEntities(gameTime, 100f);
-
-                        // Cleanup pending entities
-                        if (_pendingRemovalEntities?.Count > 0)
-                        {
-                            foreach (int handle in _pendingRemovalEntities)
-                            {
-                                if (_pulledEntities.TryGetValue(handle, out PulledEntity entity))
-                                {
-                                    _pulledEntities.TryRemove(handle, out _);
-                                    entity?.Dispose();
-                                }
-                            }
-                            while (_pendingRemovalEntities.TryTake(out _)) { }
-                        }
-                    }
-                }
-
-                base.OnUpdate(gameTime);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error in TornadoVortex.Update: {ex.Message}");
-                Logger.Error($"Stack trace: {ex.StackTrace}");
-                Dispose();
-            }
-        }
-
-        private void FixedUpdate(float fixedDeltaTime)
-        {
-            // Physics and movement updates (need to be frame-rate independent)
-            if (ScriptThread.GetVar<bool>("vortexMovementEnabled"))
-            {
-                UpdateMovement(fixedDeltaTime);
-            }
-
-            float maxEntityDist = ScriptThread.GetVar<float>("vortexMaxEntityDist");
-            UpdatePulledEntities(Game.GameTime, maxEntityDist);
-        }
-
-        private void VariableUpdate(float deltaTime)
-        {
-            int gameTime = Game.GameTime;
-
-            // Visual and non-physics updates (can run at variable rate)
-            if (ScriptThread.GetVar<bool>("vortexEnableSurfaceDetection"))
-            {
-                UpdateSurfaceDetection(gameTime);
-            }
-
-            // Collect entities less frequently to reduce performance impact
-            if (gameTime - _lastFullUpdateTime >= 250) // 4 times per second
-            {
-                float maxEntityDist = ScriptThread.GetVar<float>("vortexMaxEntityDist");
-                CollectNearbyEntities(gameTime, maxEntityDist);
-                _lastFullUpdateTime = gameTime;
-            }
-
-            UpdateDebrisLayer(LastMaterialTraversed);
-        }
+        private bool IsValid => !_disposed && !_isDisposing && _isInitialized && _position != null && _pulledEntities != null;
 
         private void UpdateMovement(float deltaTime)
         {
-            // Check if we need to change destination
-            if (_destination == Vector3.Zero || _position.DistanceTo(_destination) < 15.0f)
+            try
             {
-                ChangeDestination(false);
-            }
+                // Early return if position or destination not set
+                if (_position == null)
+                {
+                    Logger.Log("MoveTowardsDestination: Position is null");
+                    return;
+                }
 
-            if (_position.DistanceTo(_player.Position) > 200.0f)
-            {
-                ChangeDestination(true);
-            }
+                // If no destination is set, use current position
+                if (_destination == null)
+                {
+                    _destination = _position;
+                    Logger.Log("MoveTowardsDestination: Destination was null, set to current position");
+                    return;
+                }
 
-            // Frame-independent movement calculation
-            float moveSpeed = ScriptThread.GetVar<float>("vortexMoveSpeedScale") * 0.287f;
-            Vector3 moveDirection = (_destination - _position);
-            if (moveDirection.Length() > 0.001f)
-            {
+                float moveSpeed;
+                try
+                {
+                    moveSpeed = GetOrSetDefaultVar<float>("vortexMoveSpeedScale", 1.0f) * 0.287f;
+                }
+                catch
+                {
+                    moveSpeed = 0.287f; // Default if variable access fails
+                }
+
+                Vector3 moveDirection = (_destination - _position);
+                float distance = moveDirection.Length();
+
+                // If we're close enough to destination, stop moving
+                if (distance < 0.1f)
+                {
+                    return;
+                }
+
                 moveDirection.Normalize();
-                Vector3 targetPosition = _position + (moveDirection * moveSpeed * deltaTime * 60f); // Scale for 60fps equivalent
-                _position = Vector3.Lerp(_position, targetPosition, deltaTime * 20.0f);
+                _position += moveDirection * moveSpeed * deltaTime;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in MoveTowardsDestination: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
             }
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
             if (_disposed) return;
 
@@ -542,87 +767,88 @@ namespace TornadoScript.ScriptMain.Script
 
                 if (disposing)
                 {
-                    try
-                    {
-                        // Clean up entity pool with proper model cleanup
-                        if (_useInternalEntityArray && _entityPool != null)
-                        {
-                            foreach (var entity in _entityPool)
-                            {
-                                if (entity != null && entity.Exists())
-                                {
-                                    // Reset entity state before deletion
-                                    Function.Call(Hash.FREEZE_ENTITY_POSITION, entity.Handle, false);
-                                    Function.Call(Hash.SET_ENTITY_DYNAMIC, entity.Handle, true);
-                                    Function.Call(Hash.SET_ENTITY_HAS_GRAVITY, entity.Handle, true);
-
-                                    // Clear any tasks if it's a Ped
-                                    if (entity is Ped ped)
-                                    {
-                                        ped.Task.ClearAllImmediately();
-                                    }
-
-                                    // Reset physics state
-                                    entity.Velocity = Vector3.Zero;
-                                    entity.LocalRotationVelocity = Vector3.Zero;
-
-                                    // Delete the entity
-                                    entity.Delete();
-                                }
-                            }
-                            _entityPool.Clear();
-                        }
-
-                        // Clean up pulled entities with proper disposal
-                        foreach (var kvp in _pulledEntities)
-                        {
-                            if (kvp.Value != null)
-                            {
-                                kvp.Value.Dispose();
-                            }
-                        }
-                        _pulledEntities.Clear();
-                        while (_pendingRemovalEntities.TryTake(out _)) { }
-
-                        // Clean up particles with proper model cleanup
-                        foreach (var particle in _particles)
-                        {
-                            if (particle != null)
-                            {
-                                // Stop particle effects
-                                particle.Dispose();
-                            }
-                        }
-                        _particles.Clear();
-
-                        // Clean up any models that were loaded
-                        foreach (var model in _loadedModels)
-                        {
-                            if (model.IsValid && model.IsLoaded)
-                            {
-                                model.MarkAsNoLongerNeeded();
-                            }
-                        }
-                        _loadedModels.Clear();
-
-                        // Clean up any remaining native resources
-                        if (_scriptFire != -1)
-                        {
-                            Function.Call(Hash.REMOVE_SCRIPT_FIRE, _scriptFire);
-                            _scriptFire = -1;
-                        }
-                        Function.Call(Hash.STOP_FIRE_IN_RANGE, Position.X, Position.Y, Position.Z, 100f);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Error in TornadoVortex.Dispose: {ex.Message}");
-                        Logger.Error($"Stack trace: {ex.StackTrace}");
-                    }
+                    CleanupEntityPool();
+                    CleanupPulledEntities();
+                    CleanupParticles();
+                    CleanupModels();
+                    CleanupNativeResources();
                 }
 
                 _disposed = true;
                 _isDisposing = false;
             }
+        }
+
+        private void CleanupEntityPool()
+        {
+            if (_useInternalEntityArray && _entityPool != null)
+            {
+                foreach (var entity in _entityPool)
+                {
+                    if (entity != null && entity.Exists())
+                    {
+                        ResetEntityBeforeDeletion(entity);
+                        entity.Delete();
+                    }
+                }
+                _entityPool.Clear();
+            }
+        }
+
+        private void ResetEntityBeforeDeletion(Entity entity)
+        {
+            Function.Call(Hash.FREEZE_ENTITY_POSITION, entity.Handle, false);
+            Function.Call(Hash.SET_ENTITY_DYNAMIC, entity.Handle, true);
+            Function.Call(Hash.SET_ENTITY_HAS_GRAVITY, entity.Handle, true);
+
+            if (entity is Ped ped)
+            {
+                ped.Task.ClearAllImmediately();
+            }
+
+            entity.Velocity = Vector3.Zero;
+            entity.LocalRotationVelocity = Vector3.Zero;
+        }
+
+        private void CleanupPulledEntities()
+        {
+            foreach (var kvp in _pulledEntities)
+            {
+                kvp.Value?.Dispose();
+            }
+            _pulledEntities.Clear();
+            while (_pendingRemovalEntities.TryTake(out _)) { }
+        }
+
+        private void CleanupParticles()
+        {
+            foreach (var particle in _particles)
+            {
+                particle?.Dispose();
+            }
+            _particles.Clear();
+        }
+
+        private void CleanupModels()
+        {
+            foreach (var model in _loadedModels)
+            {
+                if (model.IsValid && model.IsLoaded)
+                {
+                    model.MarkAsNoLongerNeeded();
+                }
+            }
+            _loadedModels.Clear();
+        }
+
+        private void CleanupNativeResources()
+        {
+            if (_scriptFire != -1)
+            {
+                Function.Call(Hash.REMOVE_SCRIPT_FIRE, _scriptFire);
+                _scriptFire = -1;
+            }
+            Function.Call(Hash.STOP_FIRE_IN_RANGE, Position.X, Position.Y, Position.Z, 100f);
         }
 
         public override void Dispose()
@@ -632,15 +858,11 @@ namespace TornadoScript.ScriptMain.Script
             base.Dispose();
         }
 
-        ~TornadoVortex()
-        {
-            Dispose(false);
-        }
+        ~TornadoVortex() => Dispose(false);
 
         private Entity GetOrCreateEntity(Vector3 position)
         {
-            if (!_useInternalEntityArray || _entityPool == null)
-                return null;
+            if (!_useInternalEntityArray || _entityPool == null) return null;
 
             var entity = _entityPool.Get();
             if (entity != null && entity.Exists())
@@ -655,8 +877,7 @@ namespace TornadoScript.ScriptMain.Script
 
         private void ReturnEntityToPool(Entity entity)
         {
-            if (entity == null || !entity.Exists() || !_useInternalEntityArray || _entityPool == null)
-                return;
+            if (entity == null || !entity.Exists() || !_useInternalEntityArray || _entityPool == null) return;
 
             if (_entityPool.Return(entity))
             {
@@ -669,78 +890,58 @@ namespace TornadoScript.ScriptMain.Script
             }
         }
 
-        public async Task<bool> Build()
+        public bool Build()
         {
             try
             {
-                if (_position == null || _position == default(Vector3))
-                {
-                    Logger.Error("Cannot build vortex - position not initialized");
-                    return false;
-                }
+                ClearExistingParticles();
 
-                // Clear existing particles
-                foreach (var particle in _particles)
-                {
-                    particle?.Dispose();
-                }
-                _particles.Clear();
-
-                // Get configuration with defaults
-                var numParticlesVar = ScriptThread.GetVar<int>("vortexParticleCount");
-                var particleScaleVar = ScriptThread.GetVar<float>("vortexParticleScale");
-
-                int numParticles = numParticlesVar?.Value ?? 10; // Default to 10 particles
-                float particleScale = particleScaleVar?.Value ?? 1.0f; // Default to scale 1.0
-
-                Logger.Log($"Building vortex at position {_position} with {numParticles} particles at scale {particleScale}");
-
+                // Improved tornado shape parameters
+                int numParticles = 80;  // More particles for denser appearance
+                float baseScale = 3.0f;
+                float heightStep = 2.5f; // Closer particles vertically
+                
+                // Create funnel shape
                 for (int layer = 0; layer < numParticles; layer++)
                 {
-                    float heightOffset = layer * 2.0f;
-                    float angle = layer * 137.5f;
-
-                    Vector3 offset = new Vector3(
-                        (float)Math.Cos(angle * Math.PI / 180.0) * 2.0f,
-                        (float)Math.Sin(angle * Math.PI / 180.0) * 2.0f,
-                        heightOffset
-                    );
-
-                    Vector3 particlePosition = _position + offset;
-
-                    var particle = new TornadoParticle()
+                    float heightRatio = layer / (float)numParticles;
+                    // Exponential funnel shape formula
+                    float radius = 20.0f * (float)Math.Pow(1.0f - heightRatio, 2) + 1.0f;
+                    
+                    var particle = new TornadoParticle
                     {
-                        Position = particlePosition,
-                        BaseOffset = offset,
+                        Position = _position + new Vector3(0, 0, layer * heightStep),
                         Layer = layer,
-                        Angle = angle
+                        BaseOffset = new Vector3(radius, radius, 0),
+                        // Faster rotation at bottom
+                        RotationSpeed = 4.0f + ((1.0f - heightRatio) * 3.0f),
+                        HeightOffset = layer * heightStep
                     };
 
-                    if (particle != null)
+                    // Use more intense particle effect
+                    if (particle.StartFx("scr_trevor3", "scr_trev3_trailer_plume", 
+                        baseScale * (1.0f + heightRatio * 0.5f)))
                     {
-                        try
-                        {
-                            Logger.Log($"Creating particle at position {particlePosition}");
-                            await particle.StartFxAsync(scale: particleScale);
-                            _particles.Add(particle);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error($"Failed to start particle effect: {ex.Message}");
-                            particle.Dispose();
-                        }
+                        _particles.Add(particle);
                     }
                 }
 
-                Logger.Log($"Successfully built vortex with {_particles.Count} particles");
                 return true;
             }
             catch (Exception ex)
             {
                 Logger.Error($"Error in Build: {ex.Message}");
-                Logger.Error($"Stack trace: {ex.StackTrace}");
                 return false;
             }
+        }
+
+        private void ClearExistingParticles()
+        {
+            foreach (var particle in _particles)
+            {
+                particle?.Dispose();
+            }
+            _particles.Clear();
         }
 
         private void ChangeDestination(bool trackToPlayer)
@@ -767,10 +968,6 @@ namespace TornadoScript.ScriptMain.Script
             _pendingRemovalEntities.Add(entityIdx);
         }
 
-        /// <summary>
-        /// Adds an entity to be processed by the tornado vortex
-        /// </summary>
-        /// <param name="entity">The entity to add</param>
         private void AddEntity(Entity entity, float xBias, float yBias)
         {
             var pulledEntity = new PulledEntity(entity, entity.Position.DistanceTo(_position))
@@ -784,19 +981,16 @@ namespace TornadoScript.ScriptMain.Script
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void CollectNearbyEntities(int gameTime, float maxDistanceDelta)
+        private void CollectNearbyEntities(int gameTime)
         {
-            if (gameTime < _nextUpdateTime)
-                return;
+            if (gameTime < _nextUpdateTime) return;
 
-            foreach (var ent in MemoryAccess.GetAllEntities())
+            foreach (var ent in World.GetAllEntities())
             {
                 if (_pulledEntities.Count >= MaxEntityCount) break;
+                if (_pulledEntities.ContainsKey(ent.Handle) || ent.Position.DistanceTo2D(_position) > 100f + 4.0f || ent.HeightAboveGround > 300.0f) continue;
 
-                if (_pulledEntities.ContainsKey(ent.Handle) ||
-                        ent.Position.DistanceTo2D(_position) > maxDistanceDelta + 4.0f || ent.HeightAboveGround > 300.0f) continue;
-
-                if (ent is Ped && /*entities[p].Handle != _player.Handle &&*/ !(ent as Ped).IsRagdoll)
+                if (ent is Ped && !(ent as Ped).IsRagdoll)
                 {
                     Function.Call(Hash.SET_PED_TO_RAGDOLL, ent.Handle, 800, 1500, 2, 1, 1, 0);
                 }
@@ -807,248 +1001,37 @@ namespace TornadoScript.ScriptMain.Script
             _nextUpdateTime = gameTime + 600;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void CollectNearbyEntitiesInternal(int gameTime, float maxDistanceDelta)
-        {
-            if (gameTime - _lastFullUpdateTime > 5000)
-            {
-                // Cache entities periodically
-                _lastFullUpdateTime = gameTime;
-            }
-
-            if (gameTime > _nextUpdateTime)
-            {
-                // Collect all types of entities
-                var entities = new List<Entity>();
-                entities.AddRange(World.GetAllPeds());
-                entities.AddRange(World.GetAllVehicles());
-                entities.AddRange(World.GetAllProps());
-
-                foreach (var ent in entities)
-                {
-                    if (_pulledEntities.Count >= MaxEntityCount) break;
-
-                    if (_pulledEntities.ContainsKey(ent.Handle) ||
-                        ent.Position.DistanceTo2D(_position) > maxDistanceDelta ||
-                        ent.HeightAboveGround > 300.0f) continue;
-
-                    if (ent is Ped && !(ent as Ped).IsRagdoll && ent.HeightAboveGround > 2.0f)
-                    {
-                        Function.Call(Hash.SET_PED_TO_RAGDOLL, ent.Handle, 800, 1500, 2, 1, 1, 0);
-                    }
-
-                    AddEntity(ent, 3.0f * Probability.GetScalar(), 3.0f * Probability.GetScalar());
-                }
-
-                _nextUpdateTime = gameTime + 200;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void UpdatePulledEntities(int gameTime, float maxDistanceDelta)
-        {
-            float verticalForce = ScriptThread.GetVar<float>("vortexVerticalPullForce");
-            float horizontalForce = ScriptThread.GetVar<float>("vortexHorizontalPullForce");
-            float topSpeed = ScriptThread.GetVar<float>("vortexTopEntitySpeed");
-
-            // Clear existing pending removals
-            while (_pendingRemovalEntities.TryTake(out _)) { }
-
-            foreach (var e in _pulledEntities)
-            {
-                var entity = e.Value.Entity;
-
-                var dist = Vector2.Distance(entity.Position.Vec2(), _position.Vec2());
-
-                if (dist > maxDistanceDelta - 13f || entity.HeightAboveGround > 300.0f)
-                {
-                    ReleaseEntity(e.Key);
-                    continue;
-                }
-
-                var targetPos = new Vector3(_position.X + e.Value.XBias, _position.Y + e.Value.YBias, entity.Position.Z);
-
-                var direction = Vector3.Normalize(targetPos - entity.Position);
-
-                var forceBias = Probability.NextFloat();
-
-                var force = ForceScale * (forceBias + forceBias / dist);
-
-                if (e.Value.IsPlayer)
-                {
-                    verticalForce *= 1.62f;
-
-                    horizontalForce *= 1.2f;
-
-                    //  horizontalForce *= 1.5f;
-
-                    if (gameTime - _lastPlayerShapeTestTime > 1000)
-                    {
-                        var start = entity.Position;
-                        var end = targetPos;
-                        var rayHandle = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
-                            start.X, start.Y, start.Z,
-                            end.X, end.Y, end.Z,
-                            (int)(IntersectFlags.Map | IntersectFlags.Objects | IntersectFlags.Vehicles | IntersectFlags.Peds),
-                            null,
-                            0);
-
-                        var hitArg = new OutputArgument();
-                        var endCoordsArg = new OutputArgument();
-                        var surfaceNormalArg = new OutputArgument();
-                        var entityHandleArg = new OutputArgument();
-
-                        Function.Call(Hash.GET_SHAPE_TEST_RESULT, rayHandle, hitArg, endCoordsArg, surfaceNormalArg, entityHandleArg);
-
-                        bool hit = hitArg.GetResult<bool>();
-                        Vector3 endCoords = endCoordsArg.GetResult<Vector3>();
-                        Vector3 surfaceNormal = surfaceNormalArg.GetResult<Vector3>();
-                        Entity hitEntity = Entity.FromHandle(entityHandleArg.GetResult<int>());
-
-                        _lastRaycastResultFailed = hit;
-                        _lastPlayerShapeTestTime = gameTime;
-                    }
-
-                    if (_lastRaycastResultFailed)
-                        continue;
-                }
-
-                if (entity.Model.IsPlane)
-                {
-                    force *= 6.0f;
-                    verticalForce *= 6.0f;
-                }
-
-                // apply a directional force pulling them into the tornado...
-                entity.ApplyForce(direction * horizontalForce,
-                    new Vector3(Probability.NextFloat(), 0, Probability.GetScalar()));
-
-                var upDir = Vector3.Normalize(new Vector3(_position.X, _position.Y, _position.Z + 1000.0f) -
-                                              entity.Position);
-                // apply vertical forces
-                entity.ApplyForceToCenterOfMass(upDir * verticalForce);
-
-                var cross = Vector3.Cross(direction, Vector3.WorldUp);
-
-                // move them along side the vortex.
-                entity.ApplyForceToCenterOfMass(Vector3.Normalize(cross) * force *
-                                                horizontalForce);
-
-                Function.Call(Hash.SET_ENTITY_MAX_SPEED, entity.Handle, topSpeed);
-            }
-
-            foreach (var e in _pendingRemovalEntities)
-            {
-                _pulledEntities.TryRemove(e, out _);
-            }
-        }
-
-        private static void ApplyDirectionalForce(Entity entity, Vector3 origin, Vector3 direction, float scale)
+        private void UpdateCrosswinds(int gameTime)
         {
             try
             {
-                // Validate inputs
-                if (entity == null || !entity.Exists())
+                if (gameTime - lastParticleShapeTestTime < 100) return; // Limit update frequency
+
+                var crosswindStrength = ScriptThread.GetVar<float>("vortexCrosswindStrength")?.Value ?? 1.0f;
+                var crosswindRadius = ScriptThread.GetVar<float>("vortexCrosswindRadius")?.Value ?? 50.0f;
+
+                // Create crosswind effects around tornado
+                for (float angle = 0; angle < 360; angle += 45)
                 {
-                    Logger.Error("Invalid entity in ApplyDirectionalForce");
-                    return;
+                    var radians = angle * (Math.PI / 180);
+                    var offset = new Vector3(
+                        (float)Math.Cos(radians) * crosswindRadius,
+                        (float)Math.Sin(radians) * crosswindRadius,
+                        0
+                    );
+
+                    var windPos = _position + offset;
+                    Function.Call(Hash.SET_PARTICLE_FX_NON_LOOPED_COLOUR, 0.5f, 0.5f, 0.5f);
+                    Function.Call(Hash.USE_PARTICLE_FX_ASSET, "core");
+                    Function.Call(Hash.START_PARTICLE_FX_NON_LOOPED_AT_COORD,
+                        "ent_dst_gen_water_spray",
+                        windPos.X, windPos.Y, windPos.Z,
+                        0.0f, 0.0f, 0.0f,
+                        crosswindStrength,
+                        false, false, false);
                 }
 
-                if (origin == null || origin == default(Vector3) ||
-                    direction == null || direction == default(Vector3))
-                {
-                    Logger.Error("Invalid vectors in ApplyDirectionalForce");
-                    return;
-                }
-
-                // Skip planes and high-altitude entities
-                if (Function.Call<int>(Hash.GET_VEHICLE_CLASS, entity) == 16 ||
-                    entity.HeightAboveGround > 15.0f)
-                {
-                    return;
-                }
-
-                float entityDist = Vector3.Distance(entity.Position, origin);
-                if (entityDist <= 0)
-                {
-                    Logger.Error("Invalid entity distance in ApplyDirectionalForce");
-                    return;
-                }
-
-                float zForce, scaleModifier;
-                Vector3 rotationalForce;
-
-                // Handle different entity types
-                if (entity is Vehicle)
-                {
-                    zForce = Probability.GetBoolean(0.50f) ? 0.0332f : 0.0318f;
-                    scaleModifier = 22.0f;
-                    rotationalForce = new Vector3(0.0f, 0.1f, 0.40f);
-                }
-                else if (entity is Ped ped)
-                {
-                    if (!ped.IsRagdoll)
-                    {
-                        try
-                        {
-                            Function.Call(Hash.SET_PED_TO_RAGDOLL, entity.Handle, 800, 1500, 2, 1, 1, 0);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error($"Failed to set ped to ragdoll: {ex.Message}");
-                        }
-                    }
-                    zForce = 0.0034f;
-                    scaleModifier = 30.0f;
-                    rotationalForce = new Vector3(0.0f, 0.0f, 0.12f);
-                }
-                else
-                {
-                    zForce = 0.000f;
-                    scaleModifier = 30.0f;
-                    rotationalForce = new Vector3(0.0f, 0.338f, 0.0f);
-                }
-
-                // Calculate and apply force
-                var forceScale = Math.Min(1.0f, scaleModifier / entityDist) * scale;
-                var force = (direction + new Vector3(0, 0, zForce)) * forceScale;
-
-                try
-                {
-                    entity.ApplyForce(force, rotationalForce, ForceType.InternalImpulse);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"Failed to apply force to entity: {ex.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error in ApplyDirectionalForce: {ex.Message}");
-                Logger.Error($"Stack trace: {ex.StackTrace}");
-            }
-        }
-
-        private void UpdateCrosswinds(int _gameTime)
-        {
-            try
-            {
-                if (_position == null || _position == default(Vector3))
-                {
-                    Logger.Error("Invalid position in UpdateCrosswinds");
-                    return;
-                }
-
-                var forwardLeft = _position + Vector3.WorldNorth * 100.0f;
-                var rearLeft = _position - Vector3.WorldNorth * 100.0f;
-                var direction = Vector3.Normalize(rearLeft - forwardLeft);
-
-                Entity target;
-                if (DoEntityCapsuleTest(forwardLeft, rearLeft, 22.0f, null, out target) &&
-                    target != null && target.Exists())
-                {
-                    ApplyDirectionalForce(target, forwardLeft, direction, 4.0f);
-                }
+                lastParticleShapeTestTime = gameTime;
             }
             catch (Exception ex)
             {
@@ -1057,94 +1040,237 @@ namespace TornadoScript.ScriptMain.Script
             }
         }
 
-        private bool DoEntityCapsuleTest(Vector3 start, Vector3 target, float radius, Entity ignore, out Entity hitEntity)
-        {
-            var shapeTest = ShapeTest.StartTestCapsule(
-                start,
-                target,
-                radius,
-                IntersectFlags.Everything,
-                ignore
-            );
-
-            var hitArg = new OutputArgument();
-            var endCoordsArg = new OutputArgument();
-            var surfaceNormalArg = new OutputArgument();
-            var entityHandleArg = new OutputArgument();
-
-            Function.Call(Hash.GET_SHAPE_TEST_RESULT, shapeTest, hitArg, endCoordsArg, surfaceNormalArg, entityHandleArg);
-
-            hitEntity = Entity.FromHandle(entityHandleArg.GetResult<int>());
-            return hitArg.GetResult<bool>();
-        }
-
         private void UpdateSurfaceDetection(int gameTime)
         {
-            if (gameTime - lastParticleShapeTestTime > 1200)
+            try
             {
-                var start = _position;
-                var end = _position - Vector3.WorldUp * 100.0f;
-                var rayHandle = Function.Call<int>(Hash.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE,
-                    start.X, start.Y, start.Z,
-                    end.X, end.Y, end.Z,
-                    (int)(IntersectFlags.Map | IntersectFlags.Objects | IntersectFlags.Vehicles | IntersectFlags.Peds),
-                    null,
-                    0);
+                if (_position == null || _position == default(Vector3)) return;
 
-                var hitArg = new OutputArgument();
-                var endCoordsArg = new OutputArgument();
-                var surfaceNormalArg = new OutputArgument();
-                var entityHandleArg = new OutputArgument();
-                var materialHashArg = new OutputArgument();
+                // Perform raycast to detect ground material
+                float groundHeight;
+                World.GetGroundHeight(_position, out groundHeight);
+                var surfacePos = new Vector3(_position.X, _position.Y, groundHeight);
 
-                Function.Call(Hash.GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL, rayHandle, hitArg, endCoordsArg, surfaceNormalArg, materialHashArg, entityHandleArg);
+                var rayHandle = Function.Call<int>(Hash.START_SHAPE_TEST_LOS_PROBE,
+                    surfacePos.X, surfacePos.Y, surfacePos.Z + 1.0f,
+                    surfacePos.X, surfacePos.Y, surfacePos.Z - 1.0f,
+                    -1, 0, 0);
 
-                if (materialHashArg.GetResult<int>() != (int)LastMaterialTraversed)
+                OutputArgument outPosition = new OutputArgument();
+                OutputArgument outNormal = new OutputArgument();
+                OutputArgument outHit = new OutputArgument();
+                OutputArgument outMaterialHash = new OutputArgument();
+                OutputArgument outEntityHit = new OutputArgument();
+
+                bool hitResult = Function.Call<bool>(Hash.GET_SHAPE_TEST_RESULT, rayHandle, outHit, outPosition,
+                    outNormal, outMaterialHash, outEntityHit);
+
+                if (hitResult)
                 {
-                    switch (LastMaterialTraversed)
+                    int hit = outHit.GetResult<int>();
+                    if (hit != 0)
                     {
-                        case Materials.SandTrack:
-                        case Materials.SandCompact:
-                        case Materials.SandDryDeep:
-                        case Materials.SandLoose:
-                        case Materials.SandWet:
-                        case Materials.SandWetDeep:
-                            {
-                                particleColorPrev = particleColor;
-                                particleColorGoal = Color.NavajoWhite;
-                                particleLerpTime = 0.0f;
-                            }
+                        Vector3 endCoords = outPosition.GetResult<Vector3>();
+                        Vector3 surfaceNormal = outNormal.GetResult<Vector3>();
+                        int materialHash = outMaterialHash.GetResult<int>();
+                        var material = (Materials)materialHash;
+                        if (material != LastMaterialTraversed)
+                        {
+                            LastMaterialTraversed = material;
+                            Logger.Log($"Surface material changed to: {material}");
 
-                            break;
-                        default:
-                            particleColorPrev = particleColor;
-                            particleColorGoal = Color.Black;
-                            particleLerpTime = 0.0f;
-                            break;
+                            // Update particle effects based on material
+                            UpdateParticleEffectsForMaterial(material);
+                        }
                     }
-
-                    LastMaterialTraversed = (Materials)materialHashArg.GetResult<int>();
                 }
-
-                lastParticleShapeTestTime = gameTime;
             }
-
-            if (particleLerpTime < 1.0f)
+            catch (Exception ex)
             {
-                particleLerpTime += Game.LastFrameTime / DEFAULT_COLOR_LERP_DURATION;
-                particleColor = particleColor.Lerp(particleColorGoal, particleLerpTime);
+                Logger.Error($"Error in UpdateSurfaceDetection: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
             }
-
-            Function.Call(Hash.SET_PARTICLE_FX_LOOPED_COLOUR, "scr_rcbarry2", "scr_clown_appears", particleColor.R / 255.0f, particleColor.G / 255.0f, particleColor.B / 255.0f);
         }
 
-        private void UpdateDebrisLayer(Materials _material)
+        private void UpdateDebrisLayer(Materials material)
         {
-            if (Game.GameTime - _lastDebrisSpawnTime > 3000 + Probability.GetInteger(0, 5000))
+            try
             {
-                //  UI.ShowSubtitle("spawn debris");
+                if (!IsValid) return;
 
-                new TDebris(this, _position, ScriptThread.GetVar<float>("vortexRadius"));
+                var debrisSpawnInterval = ScriptThread.GetVar<int>("vortexDebrisSpawnInterval")?.Value ?? DEBRIS_SPAWN_INTERVAL;
+                var gameTime = Game.GameTime;
+
+                if (gameTime - _lastDebrisSpawnTime < debrisSpawnInterval) return;
+
+                var debrisConfig = GetDebrisConfigForMaterial(material);
+                if (debrisConfig == null) return;
+
+                // Spawn debris with material-specific properties
+                var spawnPos = _position + new Vector3(
+                    Probability.GetScalar() * 10.0f - 5.0f,
+                    Probability.GetScalar() * 10.0f - 5.0f,
+                    0.0f
+                );
+
+                var debris = new TDebris(this, spawnPos, 5.0f)
+                {
+                    ForceMultiplier = debrisConfig.ForceMultiplier,
+                    LiftMultiplier = debrisConfig.LiftMultiplier,
+                    MaxSpeed = debrisConfig.MaxSpeed
+                };
+
+                if (debris.Initialize(debrisConfig.ModelName))
+                {
+                    Logger.Log($"Spawned {material} debris at {spawnPos}");
+                }
+
+                _lastDebrisSpawnTime = gameTime;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in UpdateDebrisLayer: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private void UpdateParticleEffectsForMaterial(Materials material)
+        {
+            try
+            {
+                string effectAsset = "core";
+                string effectName = "ent_dst_gen_dust";
+                float scale = 1.0f;
+
+                switch (material)
+                {
+                    case Materials.Water:
+                        effectAsset = "core";
+                        effectName = "ent_dst_gen_water_spray";
+                        scale = 1.5f;
+                        break;
+                    case Materials.Grass:
+                    case Materials.GrassLong:
+                    case Materials.GrassShort:
+                    case Materials.DirtTrack:
+                    case Materials.MudHard:
+                    case Materials.MudSoft:
+                    case Materials.Soil:
+                        effectAsset = "core";
+                        effectName = "ent_dst_gen_grass";
+                        scale = 1.2f;
+                        break;
+                    case Materials.SandLoose:
+                    case Materials.SandCompact:
+                    case Materials.SandWet:
+                    case Materials.SandTrack:
+                    case Materials.SandDryDeep:
+                    case Materials.SandWetDeep:
+                    case Materials.SandstoneSolid:
+                    case Materials.SandstoneBrittle:
+                        effectAsset = "core";
+                        effectName = "ent_dst_gen_sand";
+                        scale = 1.3f;
+                        break;
+                    case Materials.Tarmac:
+                    case Materials.Concrete:
+                        effectAsset = "core";
+                        effectName = "ent_dst_gen_dust";
+                        scale = 1.0f;
+                        break;
+                }
+
+                foreach (var particle in _particles)
+                {
+                    particle?.StartFx(effectAsset, effectName, scale);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in UpdateParticleEffectsForMaterial: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private class DebrisConfig
+        {
+            public string ModelName { get; set; }
+            public float ForceMultiplier { get; set; }
+            public float LiftMultiplier { get; set; }
+            public float MaxSpeed { get; set; }
+        }
+
+        private DebrisConfig GetDebrisConfigForMaterial(Materials material)
+        {
+            switch (material)
+            {
+                case Materials.Water:
+                    return new DebrisConfig
+                    {
+                        ModelName = "prop_watercrate_01",
+                        ForceMultiplier = 1.2f,
+                        LiftMultiplier = 1.5f,
+                        MaxSpeed = 40.0f
+                    };
+                case Materials.Grass:
+                    return new DebrisConfig
+                    {
+                        ModelName = "prop_veg_crop_01",
+                        ForceMultiplier = 1.0f,
+                        LiftMultiplier = 1.3f,
+                        MaxSpeed = 45.0f
+                    };
+                case Materials.SandLoose:
+                case Materials.SandCompact:
+                case Materials.SandWet:
+                case Materials.SandTrack:
+                case Materials.SandDryDeep:
+                case Materials.SandWetDeep:
+                case Materials.SandstoneSolid:
+                case Materials.SandstoneBrittle:
+                    return new DebrisConfig
+                    {
+                        ModelName = "prop_beach_sandcas_01",
+                        ForceMultiplier = 0.8f,
+                        LiftMultiplier = 1.1f,
+                        MaxSpeed = 35.0f
+                    };
+                case Materials.Tarmac:
+                case Materials.Concrete:
+                    return new DebrisConfig
+                    {
+                        ModelName = "prop_rub_binbag_01",
+                        ForceMultiplier = 1.1f,
+                        LiftMultiplier = 1.2f,
+                        MaxSpeed = 50.0f
+                    };
+                default:
+                    return new DebrisConfig
+                    {
+                        ModelName = "prop_barrel_02a",
+                        ForceMultiplier = 1.0f,
+                        LiftMultiplier = 1.0f,
+                        MaxSpeed = 40.0f
+                    };
+            }
+        }
+
+        private void UpdateParticleScales()
+        {
+            try
+            {
+                foreach (var particle in _particles)
+                {
+                    if (particle != null)
+                    {
+                        particle.StartFx(scale: _scale);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in UpdateParticleScales: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
             }
         }
     }

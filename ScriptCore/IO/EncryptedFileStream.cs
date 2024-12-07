@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -40,12 +40,9 @@ namespace TornadoScript.ScriptCore.IO
 
                     if (keyVal == key)
                     {
-                        using (StreamWriter writer = new StreamWriter(stream))
-                        {
-                            writer.BaseStream.Seek(seekPos, SeekOrigin.Begin);
-                            writer.BaseStream.Write(Encoding.ASCII.GetBytes(str), 0, 24);
-                        }
-
+                        using var writer = new StreamWriter(stream);
+                        writer.BaseStream.Seek(seekPos, SeekOrigin.Begin);
+                        writer.BaseStream.Write(Encoding.ASCII.GetBytes(str), 0, 24);
                         return;
                     }
 

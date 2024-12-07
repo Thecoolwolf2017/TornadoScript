@@ -14,7 +14,9 @@ namespace TornadoScript.ScriptMain.Frontend
         private readonly FrontendInput _input;
         private readonly FrontendOutput _output;
         private bool _showingConsole;
-        private HashSet<string> _outputLines;
+        private readonly HashSet<string> _outputLines;
+        private bool _isUpdating = false;
+        private readonly object _consoleLock = new object();
 
         // Custom key codes enum
         public enum KeyCode
@@ -124,16 +126,6 @@ namespace TornadoScript.ScriptMain.Frontend
                 Alt = alt;
             }
         }
-
-        private static readonly char[] SpecialChars = {
-            ')', '!', '@', '#', '$', '%', '^', '&', '*', '(',
-            '_', '+', '{', '}', '|', ':', '"', '<', '>', '?',
-            '~'
-        };
-
-        private static readonly char[] NumberChars = {
-            ')', '!', '@', '#', '$', '%', '^', '&', '*', '('
-        };
 
         public FrontendManager()
         {
@@ -280,7 +272,8 @@ namespace TornadoScript.ScriptMain.Frontend
                         break;
                     case "clear":
                         _output.Clear();
-                        _output.WriteLine("Console cleared.", false, false);
+                        // Preserve help text after clear
+                        _output.WriteLine("Console cleared. Type 'help' for available commands.", false, false);
                         break;
                     case "exit":
                         HideConsole();
@@ -299,23 +292,15 @@ namespace TornadoScript.ScriptMain.Frontend
                     foreach (var line in resultLines)
                     {
                         var trimmedLine = line.Trim();
-                        if (!_outputLines.Contains(trimmedLine))
-                        {
-                            _output.WriteLine(trimmedLine, false, false);
-                            _outputLines.Add(trimmedLine);
-                        }
+                        _output.WriteLine(trimmedLine, false, false);
                     }
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error($"Error executing command '{command}': {ex.Message}");
-                var errorMessage = $"Error: {ex.Message}";
-                if (!_outputLines.Contains(errorMessage))
-                {
-                    _output.WriteLine(errorMessage, false, false);
-                    _outputLines.Add(errorMessage);
-                }
+                _output.WriteLine($"Error: {ex.Message}", false, false);
+                _output.WriteLine("Type 'help' for available commands.", false, false);
             }
         }
 
@@ -335,22 +320,22 @@ namespace TornadoScript.ScriptMain.Frontend
             }
 
             // Handle special characters
-            switch (key)
+            return key switch
             {
-                case KeyCode.Space: return ' ';
-                case KeyCode.OemMinus: return shift ? '_' : '-';
-                case KeyCode.OemPlus: return shift ? '+' : '=';
-                case KeyCode.OemPeriod: return shift ? '>' : '.';
-                case KeyCode.OemComma: return shift ? '<' : ',';
-                case KeyCode.OemQuestion: return shift ? '?' : '/';
-                case KeyCode.OemSemicolon: return shift ? ':' : ';';
-                case KeyCode.OemQuotes: return shift ? '"' : '\'';
-                case KeyCode.OemOpenBrackets: return shift ? '{' : '[';
-                case KeyCode.OemCloseBrackets: return shift ? '}' : ']';
-                case KeyCode.OemPipe: return shift ? '|' : '\\';
-                case KeyCode.OemTilde: return shift ? '~' : '`';
-                default: return null;
-            }
+                KeyCode.Space => ' ',
+                KeyCode.OemMinus => shift ? '_' : '-',
+                KeyCode.OemPlus => shift ? '+' : '=',
+                KeyCode.OemPeriod => shift ? '>' : '.',
+                KeyCode.OemComma => shift ? '<' : ',',
+                KeyCode.OemQuestion => shift ? '?' : '/',
+                KeyCode.OemSemicolon => shift ? ':' : ';',
+                KeyCode.OemQuotes => shift ? '"' : '\'',
+                KeyCode.OemOpenBrackets => shift ? '{' : '[',
+                KeyCode.OemCloseBrackets => shift ? '}' : ']',
+                KeyCode.OemPipe => shift ? '|' : '\\',
+                KeyCode.OemTilde => shift ? '~' : '`',
+                _ => null
+            };
         }
 
         public void HandleKeyPress(System.Windows.Forms.KeyEventArgs e)
@@ -377,22 +362,32 @@ namespace TornadoScript.ScriptMain.Frontend
 
         public void ShowConsole()
         {
-            if (_showingConsole) return;
-
-            _showingConsole = true;
-            _input.Enable();
-            // Commented out undefined hash call
-            // Function.Call(Hash.SET_MOBILE_PHONE_DISABLED, true);
+            lock (_consoleLock)
+            {
+                if (!_isUpdating)
+                {
+                    _isUpdating = true;
+                    _output?.Show();
+                    _input?.Enable();
+                    _showingConsole = true;
+                    _isUpdating = false;
+                }
+            }
         }
 
         public void HideConsole()
         {
-            if (!_showingConsole) return;
-
-            _showingConsole = false;
-            _input.Disable();
-            // Commented out undefined hash call
-            // Function.Call(Hash.SET_MOBILE_PHONE_DISABLED, false);
+            lock (_consoleLock)
+            {
+                if (!_isUpdating)
+                {
+                    _isUpdating = true;
+                    _output?.Hide();
+                    _input?.Disable();
+                    _showingConsole = false;
+                    _isUpdating = false;
+                }
+            }
         }
 
         public void WriteLine(string format, params object[] args)
@@ -410,10 +405,8 @@ namespace TornadoScript.ScriptMain.Frontend
 
         public void ResetOutputLines()
         {
-            if (_outputLines != null)
-            {
-                _outputLines.Clear();
-            }
+            _outputLines?.Clear();
+            _output?.Clear();
         }
 
         public bool IsConsoleShowing => _showingConsole;

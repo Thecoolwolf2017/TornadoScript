@@ -1,283 +1,333 @@
 using GTA;
+using GTA.Math;
+using GTA.UI;
 using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Commands;
-using TornadoScript.ScriptMain.Config;
 using TornadoScript.ScriptMain.Frontend;
 
 namespace TornadoScript.ScriptMain.Script
 {
-    public sealed class MainScript : ScriptThread, IDisposable
+    public interface ITornadoFactory : IDisposable
     {
-        private readonly TornadoFactory _factory;
+        void OnUpdate(int gameTime);
+        void SpawnTornado(Vector3 position, bool neverDespawn = false);
+        object GetActiveTornado();
+        void ClearActiveTornados();
+    }
+
+
+    public class MainScript : ScriptThread, IDisposable
+    {
+        private static MainScript _instance;
+        private readonly ITornadoFactory _factory;
+        private readonly CommandManager _commandManager;
         private bool _isInitialized;
         private bool _isDisposing;
-        private bool _disposed;
-        private const int ENTITY_POOL_SIZE = 50;
-        private const float ENTITY_REUSE_DISTANCE = 20f;
-        private List<Entity> entityPool = new List<Entity>();
-        private bool vortexUseEntityPool = true;
-        private KeyEventHandler _keyDownHandler;
-
-        public MainScript()
+        private readonly Dictionary<string, object> _settings;
+        private readonly object _initLock = new object();
+        private bool _showingConsole = false;
+        public MainScript() : base()
         {
             try
             {
-                Logger.Log("MainScript constructor starting...");
+                Logger.Log("Starting MainScript initialization...");
 
-                // Register basic variables
-                RegisterVars();
-                Logger.Log("Variables registered");
+                if (_instance != null)
+                {
+                    Logger.Warning("MainScript instance already exists!");
+                    return;
+                }
 
-                // Basic manager setup
-                _factory = GetOrCreate<TornadoFactory>();
-                GetOrCreate<CommandManager>();
-                GetOrCreate<FrontendManager>();
-                Logger.Log("Managers created");
+                _instance = this;
+                Logger.Log("Instance set successfully");
 
-                // Key handler
-                _keyDownHandler = new KeyEventHandler(KeyPressed);
-                KeyDown += _keyDownHandler;
-                Logger.Log("Key handler registered");
+                // Initialize and register FrontendManager first
+                var frontendManager = new FrontendManager();
+                Add(frontendManager); // Register with ScriptExtensionPool
+                Logger.Log("FrontendManager created and registered successfully");
 
-                _isInitialized = true;
-                Logger.Log("MainScript initialization complete");
+                // Create and register TornadoFactory
+                _factory = new TornadoFactory();
+                Add((ScriptExtension)_factory); // Register with ScriptThread
+                Logger.Log("TornadoFactory created and registered successfully");
+
+                _commandManager = new CommandManager();
+                Logger.Log("CommandManager created successfully");
+
+                _settings = new Dictionary<string, object>();
+                Logger.Log("Settings dictionary initialized");
+
+                InitializeManagers();
+                Logger.Log("Managers initialized");
+
+                InitializeComponents();
+                Logger.Log("Components initialized");
+
+                // Subscribe to events
+                Tick += OnTick;
+                KeyDown += OnKeyDown;
+                Logger.Log("Events subscribed successfully");
+
+                Logger.Log("MainScript constructor completed successfully");
             }
             catch (Exception ex)
             {
-                LogError(ex, "Constructor");
+                Logger.Error($"Error in MainScript constructor: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
 
-        void IDisposable.Dispose()
+        private void InitializeManagers()
         {
-            if (_disposed || _isDisposing) return;
-            _isDisposing = true;
-
             try
             {
-                Logger.Log("MainScript disposing...");
+                Logger.Log("Starting manager initialization...");
 
-                // Clean up key handler
-                if (_keyDownHandler != null)
-                {
-                    KeyDown -= _keyDownHandler;
-                    _keyDownHandler = null;
-                    Logger.Log("Key handler removed");
-                }
-
-                // Clean up entity pool
-                if (entityPool != null)
-                {
-                    foreach (var entity in entityPool)
-                    {
-                        if (entity != null && entity.Exists())
-                        {
-                            entity.Delete();
-                        }
-                    }
-                    entityPool.Clear();
-                    Logger.Log("Entity pool cleaned");
-                }
-
-                // Clean up factory
-                if (_factory != null)
-                {
-                    _factory.RemoveAll();
-                    Logger.Log("Factory cleaned");
-                }
-
-                _isInitialized = false;
-                Logger.Log("MainScript disposed successfully");
+                // No need to create frontend manager here as it's already created in the constructor
+                Logger.Log("Managers initialized successfully");
             }
             catch (Exception ex)
             {
-                LogError(ex, "Dispose");
+                Logger.Error($"Error initializing managers: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+                throw new InvalidOperationException("Failed to initialize critical components", ex);
             }
-            finally
+        }
+
+        private void InitializeComponents()
+        {
+            try
             {
-                base.Dispose();
-                _disposed = true;
-                _isDisposing = false;
+                Logger.Log("Starting component initialization...");
+
+                // Initialize default settings
+                _settings["enablekeybinds"] = true;
+                _settings["enableconsole"] = true;
+
+                Logger.Log("Components initialized successfully");
+
+                // Set initialization flag
+                _isInitialized = true;
+                Logger.Log("Script initialization completed - Ready to process inputs");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error initializing components: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+                throw new InvalidOperationException("Failed to initialize components", ex);
+            }
+        }
+
+        private void OnTick(object sender, EventArgs e)
+        {
+            if (_isDisposing || !_isInitialized) return;
+
+            try
+            {
+                if (_factory == null)
+                {
+                    Initialize();
+                    return;
+                }
+
+                _factory.OnUpdate(Game.GameTime);
+            }
+            catch (Exception ex)
+            {
+                LogError(ex, "OnTick");
+                // Consider auto-recovery or safe shutdown
+                if (ex is InvalidOperationException)
+                {
+                    _isDisposing = true;
+                    Dispose();
+                }
+            }
+        }
+
+        private void OnKeyDown(object sender, KeyEventArgs e)
+        {
+            try
+            {
+                if (!_isInitialized || _isDisposing)
+                {
+                    return;
+                }
+
+                // Skip logging modifier keys
+                if (e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.ControlKey ||
+                    e.KeyCode == Keys.Alt || e.KeyCode == Keys.Menu)
+                {
+                    return;
+                }
+
+                // Only log F6 and F8 key presses since those are our action keys
+                if (e.KeyCode == Keys.F6 || e.KeyCode == Keys.F8)
+                {
+                    Logger.Log($"OnKeyDown: Processing key {e.KeyCode}");
+                }
+
+                if (e.KeyCode == Keys.F6)
+                {
+                    Logger.Log("F6 pressed - Processing tornado spawn/despawn");
+                    var tornado = _factory?.GetActiveTornado();
+                    if (tornado != null)
+                    {
+                        Logger.Log("Active tornado found - Disposing");
+                        // First remove from ScriptThread
+                        ScriptThread.Remove((ScriptExtension)tornado);
+                        // Then dispose
+                        ((IDisposable)tornado).Dispose();
+                        // Clear from active tornados
+                        _factory.ClearActiveTornados();
+                        Notification.PostTicker("~r~Tornado removed", true, false);
+                    }
+                    else
+                    {
+                        Logger.Log("No active tornado - Spawning new tornado");
+                        var playerPos = Game.Player.Character.Position;
+                        Logger.Log($"Player position: {playerPos}");
+
+                        // Save console state
+                        var frontendManager = ScriptThread.Get<FrontendManager>();
+                        bool wasConsoleShowing = _showingConsole;
+
+                        // Hide console temporarily if it's showing
+                        if (wasConsoleShowing && frontendManager != null)
+                        {
+                            frontendManager.HideConsole();
+                            _showingConsole = false;
+                        }
+
+                        // Spawn tornado
+                        _factory?.SpawnTornado(playerPos);
+                        Notification.PostTicker("~g~Tornado spawned", true, false);
+
+                        // Restore console if it was showing
+                        if (wasConsoleShowing && frontendManager != null)
+                        {
+                            frontendManager.ShowConsole();
+                            _showingConsole = true;
+                        }
+                    }
+                }
+                else if (e.KeyCode == Keys.F8)
+                {
+                    // Get the frontend manager
+                    var frontendManager = ScriptThread.Get<FrontendManager>();
+                    if (frontendManager != null)
+                    {
+                        try
+                        {
+                            if (!_showingConsole)
+                            {
+                                Logger.Log("Opening console...");
+                                frontendManager.ShowConsole();
+                                _showingConsole = true;
+                                Logger.Log("Console opened successfully");
+                            }
+                            else
+                            {
+                                Logger.Log("Closing console...");
+                                frontendManager.HideConsole();
+                                _showingConsole = false;
+                                Logger.Log("Console closed successfully");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error($"Error toggling console: {ex.Message}");
+                            Logger.Error($"Stack trace: {ex.StackTrace}");
+                        }
+                    }
+                    else
+                    {
+                        Logger.Error("FrontendManager not found!");
+                    }
+                }
+                else if (_showingConsole)
+                {
+                    // Forward key events to FrontendManager when console is open
+                    var frontendManager = ScriptThread.Get<FrontendManager>();
+                    if (frontendManager != null)
+                    {
+                        try
+                        {
+                            frontendManager.HandleKeyPress(e);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error($"Error handling key press: {ex.Message}");
+                            Logger.Error($"Stack trace: {ex.StackTrace}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError(ex, "OnKeyDown");
+            }
+        }
+
+        public new void Dispose()
+        {
+            if (_isDisposing) return;
+
+            lock (_initLock)
+            {
+                if (_isDisposing) return;
+                _isDisposing = true;
+
+                try
+                {
+                    // Unsubscribe from events first
+                    Tick -= OnTick;
+                    KeyDown -= OnKeyDown;
+
+                    // Dispose managers in reverse order of creation
+                    _commandManager?.Dispose();
+                    _factory?.Dispose();
+
+                    // Clear settings
+                    _settings.Clear();
+
+                    Logger.Log("MainScript disposed successfully");
+                }
+                catch (Exception ex)
+                {
+                    LogError(ex, "Dispose");
+                }
+                finally
+                {
+                    _instance = null;
+                    base.Dispose();
+                }
+            }
+        }
+
+        private void Initialize()
+        {
+            try
+            {
+                _isInitialized = true;
+                Notification.PostTicker("~g~TornadoScript initialized successfully", true, false);
+            }
+            catch (Exception ex)
+            {
+                LogError(ex, "Initialize");
+                Notification.PostTicker("~r~Failed to initialize TornadoScript", true, false);
             }
         }
 
         private void LogError(Exception ex, string context)
         {
-            Logger.Error($"Error in {context}: {ex.Message}");
-            if (ex.InnerException != null)
-            {
-                Logger.Error($"Inner Exception: {ex.InnerException.Message}");
-            }
-        }
-
-        private void RegisterVars()
-        {
-            // Core settings
-            RegisterVar("enablekeybinds", IniHelper.GetValue("Other", "EnableKeybinds", true));
-            RegisterVar("enableconsole", IniHelper.GetValue("Other", "EnableConsole", true));
-            RegisterVar("multiVortex", IniHelper.GetValue("Other", "MultiVortex", false));
-            RegisterVar("vortexUseEntityPool", IniHelper.GetValue("VortexAdvanced", "UseInternalPool", true));
-
-            // UI and Control Variables
-            RegisterVar("toggleconsole", IniHelper.GetValue("Controls", "ToggleConsole", Keys.F8), true);
-            RegisterVar("notifications", IniHelper.GetValue("Other", "Notifications", true));
-
-            // Sound Variables
-            RegisterVar("soundenabled", IniHelper.GetValue("Sound", "Enabled", true));
-            RegisterVar("sirenenabled", IniHelper.GetValue("Sound", "SirenEnabled", true));
-
-            // Vortex behavior
-            RegisterVar("vortexRadius", IniHelper.GetValue("VortexCore", "Radius", 15.0f));
-            RegisterVar("vortexParticleCount", IniHelper.GetValue("VortexCore", "ParticleCount", 10));
-            RegisterVar("vortexMaxParticleLayers", IniHelper.GetValue("VortexCore", "MaxParticleLayers", 8));
-            RegisterVar("vortexLayerSeperationScale", IniHelper.GetValue("VortexCore", "LayerSeparationScale", 12.0f));
-            RegisterVar("vortexParticleAsset", IniHelper.GetValue("VortexCore", "ParticleAsset", "core"));
-            RegisterVar("vortexParticleName", IniHelper.GetValue("VortexCore", "ParticleName", "eject_gas"));
-            RegisterVar("vortexEnableCloudTopParticle", IniHelper.GetValue("VortexCore", "EnableCloudTop", true));
-            RegisterVar("vortexEnableCloudTopParticleDebris", IniHelper.GetValue("VortexCore", "EnableCloudTopDebris", true));
-
-            // Vortex Movement Variables
-            RegisterVar("vortexMovementEnabled", IniHelper.GetValue("VortexMovement", "Enabled", true));
-            RegisterVar("vortexMoveSpeedScale", IniHelper.GetValue("VortexMovement", "SpeedScale", 1.0f));
-            RegisterVar("vortexRotationSpeed", IniHelper.GetValue("VortexMovement", "RotationSpeed", 1.0f));
-            RegisterVar("vortexEnableSurfaceDetection", IniHelper.GetValue("VortexMovement", "EnableSurfaceDetection", true));
-
-            // Entity Interaction Variables
-            RegisterVar("vortexMaxEntityDist", IniHelper.GetValue("VortexEntities", "MaxEntityDistance", 100.0f));
-            RegisterVar("vortexHorizontalPullForce", IniHelper.GetValue("VortexForces", "HorizontalPull", 15.0f));
-            RegisterVar("vortexVerticalPullForce", IniHelper.GetValue("VortexForces", "VerticalPull", 12.0f));
-            RegisterVar("vortexTopEntitySpeed", IniHelper.GetValue("VortexForces", "TopEntitySpeed", 30.0f));
-            RegisterVar("vortexForceScale", IniHelper.GetValue("VortexForces", "ForceScale", 5.0f));
-        }
-
-        private Entity GetPooledEntity()
-        {
-            if (!vortexUseEntityPool || entityPool.Count >= ENTITY_POOL_SIZE)
-                return null;
-
-            // Try to reuse an existing entity that's far enough away
-            foreach (Entity entity in entityPool)
-            {
-                if (entity != null && entity.Position.DistanceTo(Game.Player.Character.Position) > ENTITY_REUSE_DISTANCE)
-                {
-                    entityPool.Remove(entity);
-                    return entity;
-                }
-            }
-
-            return null;
-        }
-
-        private void AddToEntityPool(Entity entity)
-        {
-            if (!vortexUseEntityPool || entityPool.Count >= ENTITY_POOL_SIZE)
-                return;
-
-            if (entity != null && !entityPool.Contains(entity))
-            {
-                entityPool.Add(entity);
-                Console.WriteLine($"Added entity to pool. Pool size: {entityPool.Count}/{ENTITY_POOL_SIZE}");
-            }
-        }
-
-        private void CleanupEntityPool()
-        {
-            if (entityPool == null)
-                return;
-
-            foreach (Entity entity in entityPool)
-            {
-                if (entity != null)
-                {
-                    entity.Delete();
-                }
-            }
-            entityPool.Clear();
-        }
-
-        private async void KeyPressed(object sender, KeyEventArgs e)
-        {
-            try
-            {
-                if (!GetVar<bool>("enablekeybinds"))
-                {
-                    Logger.Log("Keybinds are disabled");
-                    return;
-                }
-
-                var frontendMgr = GetOrCreate<FrontendManager>();
-                if (frontendMgr == null) return;
-
-                // Handle console toggle
-                if (e.KeyCode == Keys.F8 && GetVar<bool>("enableconsole"))
-                {
-                    Logger.Log("F8 key pressed, toggling console");
-                    if (frontendMgr.IsConsoleShowing)
-                        frontendMgr.HideConsole();
-                    else
-                        frontendMgr.ShowConsole();
-                    return;
-                }
-
-                // Pass key events to console if it's showing
-                if (frontendMgr.IsConsoleShowing)
-                {
-                    frontendMgr.HandleKeyPress(e);
-                    e.Handled = true;  // Mark the event as handled to prevent it from reaching the game
-                    return;
-                }
-
-                // Handle tornado toggle
-                if (_factory != null && e.KeyCode == Keys.F6)
-                {
-                    Logger.Log("F6 key pressed, attempting to handle tornado");
-                    if (_factory.ActiveVortexCount > 0 && !GetVar<bool>("multiVortex"))
-                    {
-                        Logger.Log("Removing existing tornado");
-                        _factory.RemoveAll();
-                    }
-                    else
-                    {
-                        Logger.Log("Creating new tornado");
-                        var position = Game.Player.Character.Position + Game.Player.Character.ForwardVector * 180f;
-                        Logger.Log($"Spawn position: {position}");
-                        var task = _factory.CreateVortex(position);
-                        try
-                        {
-                            await task;
-                            Logger.Log("Tornado created successfully");
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error($"Failed to create tornado: {ex.Message}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError(ex, "KeyPressed");
-            }
-        }
-
-        public override void OnUpdate(int gameTime)
-        {
-            try
-            {
-                if (_isInitialized && !_disposed)
-                {
-                    base.OnUpdate(gameTime);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError(ex, "OnUpdate");
-            }
+            var message = $"Error in {context}: {ex.Message}";
+            Logger.Error(message);
+            Notification.PostTicker($"~r~{message}", true, false);
         }
     }
 }

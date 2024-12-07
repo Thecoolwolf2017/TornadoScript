@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TornadoScript.ScriptCore;
 using TornadoScript.ScriptCore.Game;
 using TornadoScript.ScriptMain.Frontend;
 
@@ -16,11 +17,30 @@ namespace TornadoScript.ScriptMain.Commands
 
         public CommandManager()
         {
-            Name = "Commands";
-            _frontendMgr = ScriptThread.GetOrCreate<FrontendManager>();
-            RegisterEvent("textadded");
+            try
+            {
+                Name = "Commands";
+                Logger.Log("Initializing CommandManager...");
 
-            InitializeCommands();
+                // Get or create FrontendManager
+                _frontendMgr = ScriptThread.Get<FrontendManager>();
+                if (_frontendMgr == null)
+                {
+                    throw new InvalidOperationException("FrontendManager must be initialized before CommandManager");
+                }
+
+                RegisterEvent("textadded");
+                Logger.Log("CommandManager events registered");
+
+                InitializeCommands();
+                Logger.Log("CommandManager commands initialized");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error in CommandManager constructor: {ex.Message}");
+                Logger.Error($"Stack trace: {ex.StackTrace}");
+                throw;
+            }
         }
 
         private void InitializeCommands()

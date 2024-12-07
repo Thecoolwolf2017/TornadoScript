@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace TornadoScript.ScriptMain.Config
@@ -50,8 +50,7 @@ namespace TornadoScript.ScriptMain.Config
         public string IniReadValue(string section, string key)
         {
             var temp = new StringBuilder(255);
-            var i = GetPrivateProfileString(section, key, "", temp,
-                                            255, Path);
+            GetPrivateProfileString(section, key, "", temp, 255, Path);
             return temp.ToString();
 
         }
